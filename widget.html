@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en" style="font-size: 100%;">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributor Product Lookup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://live.zwidgets.com/js-sdk/1.2/ZohoEmbededAppSDK.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="css/widget.css">
+</head>
+<body>
+    <div class="widget-container">
+        <!-- Compact Header -->
+        <header class="widget-header">
+            <div class="header-left">
+                <img src="img/clearvista-logo.png" alt="ClearVista" class="logo">
+                <div class="connection-status">
+                    <div class="status-dot" id="statusIndicator"></div>
+                    <span id="statusText">Checking...</span>
+                    <button onclick="authenticate()" class="btn-link">Reconnect</button>
+                </div>
+            </div>
+            <div class="header-buttons">
+                <!-- Mode Toggle -->
+                <div class="bulk-toggle" id="bulkToggle">
+                    <button class="bulk-toggle-btn" id="bulkToggleBtn" onclick="handleBulkToggleClick()">
+                        <span>Bulk Mode</span>
+                    </button>
+                    <span class="new-badge">NEW</span>
+                </div>
+                <div class="distributor-tabs">
+                    <button class="tab-btn active" data-distributor="ingram" onclick="selectDistributor('ingram')">
+                        <span class="tab-icon">IM</span>Ingram Micro
+                    </button>
+                    <button class="tab-btn" data-distributor="tdsynnex" onclick="selectDistributor('tdsynnex')">
+                        <span class="tab-icon">TS</span>TD Synnex
+                    </button>
+                </div>
+            </div>
+            <button class="widget-close-btn" onclick="closeWidget()" title="Exit the widget">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+            </button>
+        </header>
+
+        <!-- Scrollable Content -->
+        <div class="content-wrapper">
+            <!-- Status Bar (page-level for full-width notifications) -->
+            <div id="filterStatus" class="status-bar info">
+                <span class="status-message">Select a manufacturer or enter a SKU to begin</span>
+            </div>
+
+            <div class="single-search-panel">
+            <!-- Top Panels Container -->
+            <div class="panels-row">
+                <!-- Left: Search & Products -->
+                <div class="left-panel">
+                    <!-- Search Filters -->
+                    <div class="search-panel">
+                        <!-- Manufacturer Search - Single Row Combo -->
+                        <div class="filter-row mfr-row">
+                            <label class="mfr-label">
+                                <span class="field-number">1</span>
+                                Manufacturer
+                            </label>
+                            <div class="mfr-combo ingram-mode">
+                                <input type="text" id="manufacturerSearch" placeholder="Type manufacturer name (e.g. Dell, HP, Cisco)..." autocomplete="off">
+                                <select id="manufacturerSelect" onchange="onManufacturerSelect()">
+                                    <option value="">Select manufacturer...</option>
+                                </select>
+                                <span class="mfr-count" id="mfrCount"></span>
+                                <div class="tooltip-wrapper mfr-mappings-tooltip-wrapper">
+                                    <button type="button" class="mfr-mappings-btn" id="mfrMappingsBtn"
+                                            onclick="toggleMfrMappingsPanel()">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                                        </svg>
+                                    </button>
+                                    <div class="tooltip">View manufacturer name mappings between distributors</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- OR Divider -->
+                        <div class="or-divider" id="orDivider">
+                            <span class="or-text">OR</span>
+                        </div>
+
+                        <!-- SKU Search Row (dual-purpose: SKU-first search OR filter after manufacturer selected) -->
+                        <div class="filter-row sku-row" id="skuSearchRow">
+                            <label class="sku-label" id="skuSearchLabel">
+                                <span class="field-number">1</span>
+                                SKU / Part Number
+                            </label>
+                            <div class="sku-combo">
+                                <input type="text" id="skuSearch" placeholder="Enter partial or full SKU (e.g. AB123, XYZ-456)..." autocomplete="off">
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons Row -->
+                        <div class="filter-row filter-actions" id="actionButtonsRow">
+                            <div class="action-buttons">
+                                <button onclick="handleLoadProducts()" class="btn-primary">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                                    </svg>
+                                    Load Products
+                                </button>
+                                <button onclick="resetFilters()" class="btn-secondary">Reset</button>
+                            </div>
+                        </div>
+
+                        <!-- Optional Filters -->
+                        <div class="filter-row filters-optional" id="optionalFiltersRow" style="display: none;">
+                            <div class="filter-field" id="brandFilterField" style="display: none;">
+                                <label>Brand <span class="count-badge" id="brandCount"></span></label>
+                                <select id="brandSelect" onchange="onFilterChange('brand')">
+                                    <option value="">-- Any --</option>
+                                </select>
+                            </div>
+                            <div class="filter-field">
+                                <label>Category <span class="count-badge" id="catCount"></span></label>
+                                <select id="categorySelect" onchange="onFilterChange('category')" onfocus="loadFilterOptions('category')">
+                                    <option value="">-- Any --</option>
+                                </select>
+                            </div>
+                            <div class="filter-field">
+                                <label>Subcategory <span class="count-badge" id="subCatCount"></span></label>
+                                <select id="subcategorySelect" onchange="onFilterChange('subcategory')" onfocus="loadFilterOptions('subcategory')">
+                                    <option value="">-- Any --</option>
+                                </select>
+                            </div>
+                            <!-- TD Synnex Cat3 Filter (hidden for Ingram) -->
+                            <div class="filter-field" id="cat3FilterField" style="display: none;">
+                                <label id="cat3Label">Device Type <span class="count-badge" id="cat3Count"></span></label>
+                                <select id="cat3Select" onchange="onFilterChange('cat3')" onfocus="loadFilterOptions('cat3')">
+                                    <option value="">-- Any --</option>
+                                </select>
+                            </div>
+                            <!-- Ingram SKU Type Filter (hidden for TD Synnex) -->
+                            <div class="filter-field filter-narrow" id="skuTypeFilterField">
+                                <label id="skuTypeLabel">Media Type <span class="count-badge" id="skuTypeCount"></span></label>
+                                <select id="skuTypeSelect" onchange="onFilterChange('skuType')">
+                                    <option value="">-- Any --</option>
+                                    <option value="IM::physical">Physical</option>
+                                    <option value="IM::digital">Digital</option>
+                                </select>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Manufacturer Mappings Reference Panel (hidden by default) -->
+                    <div id="mfrMappingsPanel" class="mfr-mappings-panel" style="display: none;">
+                        <div class="mfr-mappings-header">
+                            <div class="mfr-mappings-header-left">
+                                <h3>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                                    </svg>
+                                    Manufacturer Name Mappings
+                                </h3>
+                                <span id="mfrMappingsCount" class="mfr-mappings-count">0</span>
+                            </div>
+                            <button class="mfr-mappings-close" onclick="toggleMfrMappingsPanel()" title="Close">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 6 6 18M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="mfr-mappings-hint">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                            Reference view of existing mapped values that associate distributor's manufacturer naming conventions to singular Zoho common manufacturer names.
+                        </div>
+                        <div class="mfr-mappings-table-container" id="mfrMappingsTableContainer">
+                            <table class="mfr-mappings-table">
+                                <colgroup>
+                                    <col class="mfr-col-common">
+                                    <col class="mfr-col-dist">
+                                    <col class="mfr-col-dist">
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>Zoho Common Name</th>
+                                        <th class="mfr-th-ingram">Ingram Micro</th>
+                                        <th class="mfr-th-synnex">TD Synnex</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mfrMappingsTableBody">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mfr-mappings-resize" id="mfrMappingsResize">
+                            <div class="mfr-mappings-resize-grip"></div>
+                        </div>
+                    </div>
+
+                    <!-- Products Table -->
+                    <div class="products-panel" id="productsSection" style="display: none;">
+                        <div class="panel-header products-header">
+                            <div class="products-title">
+                                <input type="checkbox" id="selectAll" title="Select all">
+                                <span class="title-text">Products</span>
+                                <span class="product-count" id="productCount">0 products</span>
+                                <span class="mfr-badge" id="selectedMfrBadge"></span>
+                            </div>
+                            <button onclick="addSelectedToQueue()" class="btn-accent btn-small" id="addToQueueBtn" disabled>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <path d="M12 5v14M5 12h14"/>
+                                </svg>
+                                Add to Queue
+                            </button>
+                        </div>
+
+                        <div class="table-container" id="tableContainer">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-checkbox"></th>
+                                        <th class="col-part">Part Number</th>
+                                        <th class="col-desc">Description</th>
+                                        <th class="col-price">MSRP</th>
+                                        <th class="col-action"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="productsBody"></tbody>
+                            </table>
+                        </div>
+
+                        <!-- Resize Handle -->
+                        <div class="resize-handle" id="resizeHandle">
+                            <div class="resize-grip"></div>
+                        </div>
+
+                        <div class="pagination" id="pagination"></div>
+                    </div>
+                </div>
+
+                <!-- Right: Queue Panel -->
+                <div class="right-panel" id="rightPanel">
+                    <!-- Horizontal Resize Handle -->
+                    <div class="queue-resize-handle" id="queueResizeHandle">
+                        <div class="queue-resize-grip"></div>
+                    </div>
+                    <div class="queue-panel">
+                        <div class="panel-header queue-header">
+                            <div class="queue-title">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+                                    <rect x="9" y="3" width="6" height="4" rx="1"/>
+                                </svg>
+                                Product Queue
+                                <span class="queue-count" id="queueCount">0</span>
+                            </div>
+                            <button onclick="clearQueue()" class="btn-ghost btn-tiny" id="clearQueueBtn" style="display: none;">Clear</button>
+                        </div>
+
+                        <!-- Group Toggle -->
+                        <div class="queue-options" id="queueOptions" style="display: none;">
+                            <div class="queue-options-row">
+                                <label class="toggle-label">
+                                    <input type="checkbox" id="groupByMfr" onchange="toggleGroupByManufacturer()">
+                                    <span class="toggle-text">Group by Manufacturer</span>
+                                </label>
+                                <div class="pricing-toggle" id="pricingToggle" style="display: none;">
+                                    <button class="pricing-toggle-btn" data-price="msrp" onclick="setPricingMode('msrp')">MSRP</button>
+                                    <button class="pricing-toggle-btn active" data-price="reseller" onclick="setPricingMode('reseller')">Reseller</button>
+                                </div>
+                            </div>
+                        </div>
+
+            <!-- Customer Discount % Bar -->
+            <div class="queue-discount-bar" id="queueDiscountBar">
+                <span class="discount-bar-left">Cust Disc %</span>
+                <div class="discount-bar-right">
+                    <input type="number" class="discount-bar-input" id="discountApplyAllInput" value="0" min="0" max="100" step="1"
+                           onclick="this.select()"
+                           onkeydown="if(event.key==='Enter'){applyAllDiscount(); this.blur();}">
+                    <span class="discount-bar-pct">%</span>
+                    <button class="discount-icon-btn discount-icon-btn-apply" data-tooltip="Apply to all products" onclick="applyAllDiscount()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 12l5 5L15 7"/><path d="M10 12l5 5L21 7"/>
+                        </svg>
+                    </button>
+                    <button class="discount-icon-btn discount-icon-btn-toggle" id="discountVisibilityToggle" data-tooltip="Show/hide discount fields" onclick="toggleDiscountVisibility()">
+                        <svg id="discountEyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        <svg id="discountEyeClosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                            <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                    </button>
+                    <button class="discount-icon-btn discount-icon-btn-clear" data-tooltip="Reset all discounts to 0" onclick="clearAllDiscounts()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+                        <div class="queue-empty" id="queueEmpty">
+                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+                                <rect x="9" y="3" width="6" height="4" rx="1"/>
+                                <path d="M12 11v6M9 14h6"/>
+                            </svg>
+                            <p>No products queued</p>
+                        </div>
+
+                        <div class="queue-list" id="queueList" style="display: none;">
+                            <div class="queue-hint">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/>
+                                </svg>
+                                Drag to reorder
+                            </div>
+                            <ul id="queueItems"></ul>
+                        </div>
+
+                        <div class="queue-totals" id="queueTotals" style="display: none;">
+                            <div class="queue-totals-item">
+                                <span class="queue-totals-label">Total QTY</span>
+                                <span class="queue-totals-value" id="totalQty">0</span>
+                            </div>
+                            <div class="queue-totals-item">
+                                <span class="queue-totals-label" id="totalPriceLabel">Total Reseller</span>
+                                <span class="queue-totals-value price" id="totalPrice">$0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="queue-footer" id="queueFooter" style="display: none;">
+                            <button onclick="submitQueue()" class="btn-success">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                                </svg>
+                                Add to Quote
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manufacturer Resolution Panel (hidden by default) -->
+            <div id="mfrResolutionPanel" class="mfr-resolution-panel" style="display: none;">
+                <!-- Panel Header -->
+                <div class="mfr-panel-header">
+                    <div class="mfr-panel-header-left">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                            </svg>
+                            Resolve Manufacturer Names
+                        </h2>
+                        <span id="mfrUnresolvedCount" class="mfr-unresolved-count">0</span>
+                        <div class="mfr-data-source">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
+                            </svg>
+                            Manufacturers list loaded from Zoho CRM
+                        </div>
+                    </div>
+                    <button id="mfrCollapseBtn" class="mfr-panel-collapse" onclick="toggleMfrPanelCollapse()" title="Collapse panel">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 15l-6-6-6 6"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Notification Banner -->
+                <div class="mfr-notification-banner">
+                    <svg class="mfr-notification-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 16v-4m0-4h.01"/>
+                    </svg>
+                    <div class="mfr-notification-content">
+                        <div class="mfr-notification-title">Unmapped Manufacturer Names Detected</div>
+                        <div class="mfr-notification-text">
+                            These names need to be mapped to common manufacturer names. This ensures products from different distributors can be matched and compared correctly.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resolution Table -->
+                <div class="mfr-table-container">
+                    <table class="mfr-resolution-table">
+                        <thead>
+                            <tr>
+                                <th class="th-mfr-names">
+                                    <div class="th-header-content">
+                                        <span>Manufacturer Names</span>
+                                        <div class="tooltip-wrapper">
+                                            <button class="info-btn" type="button">i</button>
+                                            <div class="tooltip">
+                                                These are the raw manufacturer names from distributor catalogs that haven't been mapped to a standard name yet.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </th>
+                                <th class="th-zoho">
+                                    <div class="th-header-content">
+                                        <span>Select From Zoho</span>
+                                        <div class="tooltip-wrapper">
+                                            <button class="info-btn" type="button">i</button>
+                                            <div class="tooltip">
+                                                Choose an existing manufacturer from the Zoho CRM Manufacturers module if one matches.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </th>
+                                <th class="th-or">
+                                    <span class="th-or-text">OR</span>
+                                </th>
+                                <th class="th-create">
+                                    <div class="th-header-content">
+                                        <span>Create New</span>
+                                        <div class="tooltip-wrapper">
+                                            <button class="info-btn" type="button">i</button>
+                                            <div class="tooltip tooltip-warning">
+                                                Only create a new name if it doesn't exist in Zoho. Use proper Title Case. Avoid abbreviations, special characters, or overly long names.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="mfrResolutionTableBody">
+                            <!-- Rows populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Panel Footer -->
+                <div class="mfr-panel-footer">
+                    <div class="mfr-footer-left">
+                        <div class="mfr-footer-status">
+                            <span id="mfrStatusDot" class="mfr-status-dot incomplete"></span>
+                            <span id="mfrStatusText">0 of 0 resolved</span>
+                        </div>
+                    </div>
+                    <div class="mfr-footer-center">
+                        <div class="mfr-footer-warning">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                            </svg>
+                            Don't create duplicates - check "Select From Zoho" first!
+                        </div>
+                    </div>
+                    <div class="mfr-footer-actions">
+                        <button class="mfr-btn mfr-btn-secondary" onclick="cancelMfrResolution()">
+                            Cancel
+                        </button>
+                        <button id="mfrConfirmBtn" class="mfr-btn mfr-btn-primary" onclick="confirmMfrResolutions()" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12l5 5L20 7"/>
+                            </svg>
+                            Confirm All
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- MOVED: Product Details panel moved outside single-search-panel to be shared by both modes (see below bulk-search-panel-container) -->
+            <!--
+            <div class="details-panel" id="productDetailsSection" style="display: none;">
+                <div class="panel-header">
+                    <h2>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                        </svg>
+                        Product Details
+                    </h2>
+                    <button onclick="hideProductDetails()" class="btn-ghost btn-small">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 6 6 18M6 6l12 12"/>
+                        </svg>
+                        Close
+                    </button>
+                </div>
+
+                <div class="details-content">
+                    <div class="product-hero">
+                        <div class="product-name-row" id="detailsProductName"></div>
+                        <div class="product-meta" id="detailsSubtitle"></div>
+                    </div>
+                    <div class="product-description" id="detailsLongDesc"></div>
+
+                    <div class="details-section">
+                        <h4>Extended Details</h4>
+                        <div class="details-grid">
+                            <div class="details-card">
+                                <h5>Product Information</h5>
+                                <div class="field-grid" id="productInfoGrid"></div>
+                            </div>
+                            <div class="details-card">
+                                <h5>Pricing</h5>
+                                <div class="field-grid" id="pricingGrid"></div>
+                            </div>
+                            <div class="details-card">
+                                <h5>Availability</h5>
+                                <div class="field-grid" id="availabilityGrid"></div>
+                            </div>
+                            <div class="details-card">
+                                <h5>Product Flags</h5>
+                                <div class="field-grid" id="flagsGrid"></div>
+                            </div>
+                        </div>
+
+                        <div class="details-card full-width" id="discountsGroup" style="display: none;">
+                            <h5>Available Discounts</h5>
+                            <table class="mini-table">
+                                <thead>
+                                    <tr>
+                                        <th>Type</th>
+                                        <th>Bid Number</th>
+                                        <th class="text-right">Discount</th>
+                                        <th class="text-right">Qty</th>
+                                        <th>Effective</th>
+                                        <th>Expires</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="discountsBody"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="details-card full-width" id="warehouseSection" style="display: none;">
+                            <h5>Warehouse Availability</h5>
+                            <table class="mini-table">
+                                <thead>
+                                    <tr>
+                                        <th>Warehouse</th>
+                                        <th>Location</th>
+                                        <th class="text-right">Available</th>
+                                        <th class="text-right">Backordered</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="warehouseBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="raw-api-toggle" id="rawApiToggle" onclick="toggleRawApi()">
+                        <span class="raw-api-icon">{&nbsp;}</span>
+                    </div>
+                    <div class="raw-api-container" id="rawApiContainer" style="display: none;">
+                        <pre id="rawApiResponse"></pre>
+                    </div>
+                </div>
+            </div>
+            -->
+            </div><!-- /.single-search-panel -->
+            <!-- Bulk Search Panel (Phase 1 - Coming Soon) -->
+            <div class="bulk-search-panel-container" style="display: none;">
+                <div class="bulk-search-content" id="bulkSearchContent">
+                    <!-- Bulk Search Panel (Phase 2) -->
+                    <div class="bulk-search-panel">
+                        <div class="bulk-panel-header">
+                            <div class="bulk-panel-title">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                    <polyline points="10 9 9 9 8 9"/>
+                                </svg>
+                                Bulk SKU Lookup
+                            </div>
+                            <div class="bulk-panel-header-right">
+                                <span class="bulk-paste-distributor-badge" id="bulkDistributorBadge"></span>
+                                <div class="tooltip-wrapper bulk-mfr-mappings-tooltip-wrapper">
+                                    <button type="button" class="mfr-mappings-btn" id="bulkMfrMappingsBtn"
+                                            onclick="toggleMfrMappingsPanel()">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                                        </svg>
+                                    </button>
+                                    <div class="tooltip">View manufacturer name mappings between distributors</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bulk-collapsible-header" data-section="bulkInputRowContent" onclick="bulkToggleSection('bulkInputRowContent')">
+                            <svg class="bulk-collapse-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4,2 8,6 4,10"/></svg>
+                            <span>Distributor Quotes</span>
+                        </div>
+                        <div class="input-zones-container bulk-section-content" id="bulkInputRowContent">
+                            <!-- Column 1: File Drop Zone -->
+                            <div class="drop-zone-wrapper">
+                                <div class="drop-zone-panel">
+                                    <div class="drop-zone-panel-title">Distributor Quotes</div>
+                                    <button class="drop-zone-clear-btn" id="bulkDropZoneClearBtn" onclick="event.stopPropagation(); bulkClearSearch();" title="Clear file">Clear</button>
+                                    <div class="drop-zone" id="bulkDropZone" onclick="document.getElementById('bulkFileInput').click()">
+                                        <div class="drop-zone-icon">
+                                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                                <polyline points="17 8 12 3 7 8"/>
+                                                <line x1="12" y1="3" x2="12" y2="15"/>
+                                            </svg>
+                                        </div>
+                                        <div class="drop-zone-content">
+                                            <div class="drop-zone-title">Drop file here</div>
+                                            <div class="drop-zone-subtitle">or click to browse</div>
+                                        </div>
+                                        <div class="drop-zone-formats">
+                                            <span class="format-icon" title=".xlsx .xls">
+                                                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M8 2C6.9 2 6 2.9 6 4V44C6 45.1 6.9 46 8 46H40C41.1 46 42 45.1 42 44V14L30 2H8Z" fill="#a5d6a7"/>
+                                                    <path d="M30 2V12C30 13.1 30.9 14 32 14H42L30 2Z" fill="#2e7d32"/>
+                                                    <rect x="4" y="18" width="32" height="11" rx="2" fill="#107c41"/>
+                                                    <text x="20" y="27" font-family="Arial, sans-serif" font-size="8" font-weight="bold" fill="white" text-anchor="middle">XLS</text>
+                                                    <rect x="4" y="31" width="32" height="11" rx="2" fill="#107c41"/>
+                                                    <text x="20" y="40" font-family="Arial, sans-serif" font-size="8" font-weight="bold" fill="white" text-anchor="middle">XLSX</text>
+                                                </svg>
+                                            </span>
+                                            <span class="format-icon" title=".csv">
+                                                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M8 2C6.9 2 6 2.9 6 4V44C6 45.1 6.9 46 8 46H40C41.1 46 42 45.1 42 44V14L30 2H8Z" fill="#90caf9"/>
+                                                    <path d="M30 2V12C30 13.1 30.9 14 32 14H42L30 2Z" fill="#5c6bc0"/>
+                                                    <rect x="4" y="24" width="32" height="14" rx="2" fill="#1976d2"/>
+                                                    <text x="20" y="35" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="white" text-anchor="middle">CSV</text>
+                                                </svg>
+                                            </span>
+                                        </div>
+                                        <div class="drop-zone-status" id="bulkDropZoneStatus"></div>
+                                    </div>
+                                    <input type="file" id="bulkFileInput" class="file-input-hidden" accept=".xlsx,.xls,.csv" onchange="bulkHandleFileSelect(event)">
+                                </div>
+                            </div>
+
+                            <!-- Column 2: Column Mappings (Phase 3 stub) -->
+                            <div class="mappings-panel disabled" id="bulkMappingsPanel">
+                                <div class="mappings-panel-title">Column Mappings</div>
+                                <div class="mappings-grid" id="bulkMappingsGrid">
+                                    <span class="column-select-label bulk-sheet-select-row" id="bulkSheetSelectLabel">Sheet:</span>
+                                    <select class="column-select bulk-sheet-select-row" id="bulkSheetSelect" onchange="bulkLoadSheetData(parseInt(this.value) || 0)"></select>
+
+                                    <span class="column-select-label">Header row:</span>
+                                    <input type="number" class="header-row-input" id="bulkHeaderRowInput" value="1" min="1" onchange="bulkUpdateColumnSelectionDropdown(parseInt(this.value) - 1 || 0); bulkOnRowInputChange()">
+
+                                    <span class="column-select-label">Last row:</span>
+                                    <input type="number" class="header-row-input" id="bulkLastRowInput" value="" min="1" placeholder="All" onchange="bulkOnRowInputChange()">
+                                    <div class="bulk-auto-map-area">
+                                        <button class="bulk-auto-map-btn" id="bulkAutoMapBtn" onclick="bulkAutoMapColumns()" title="Auto-detect header row, columns, and last row">Auto Map</button>
+                                        <button class="bulk-mapping-rules-btn" id="bulkMappingRulesBtn" onclick="bulkToggleMappingRulesPanel()" title="Edit column mapping rules">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                                                <circle cx="12" cy="12" r="3"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+
+                                    <span class="column-select-label">MPN col:</span>
+                                    <select class="column-select" id="bulkColumnSelect" onchange="bulkOnMappingChange()"><option value="">Select...</option></select>
+
+                                    <span class="column-select-label">QTY col:</span>
+                                    <select class="column-select" id="bulkQtyColumnSelect" onchange="bulkOnMappingChange()"><option value="">None</option></select>
+
+                                    <span class="column-select-label">Price col:</span>
+                                    <select class="column-select" id="bulkResellerPriceColumnSelect" onchange="bulkOnMappingChange()"><option value="">None</option></select>
+
+                                    <span class="column-select-label">VPN col:</span>
+                                    <select class="column-select" id="bulkVpnColumnSelect" onchange="bulkOnMappingChange()"><option value="">None</option></select>
+
+                                    <span class="column-select-label">MSRP col:</span>
+                                    <select class="column-select" id="bulkMsrpColumnSelect" onchange="bulkOnMappingChange()"><option value="">None</option></select>
+
+                                    <span class="column-select-label">Batch size:</span>
+                                    <input type="number" class="header-row-input" id="bulkBatchSizeInput" value="50" min="1" max="500">
+                                </div>
+                                <button class="column-apply-btn" onclick="bulkApplyColumnSelection()">Apply</button>
+                            </div>
+
+                            <!-- Column 3: Paste MPNs -->
+                            <div class="paste-section">
+                                <div class="paste-zone-header">
+                                    <span>Paste MPNs</span>
+                                </div>
+                                <textarea class="paste-textarea" id="bulkPasteArea" placeholder="Paste part numbers here&#10;One per line or comma-separated" oninput="bulkParsePastedSKUs()"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Column Mapping Rules Editor (Phase 9.2 Step 7) -->
+                        <div id="bulkMappingRulesPanel" class="mfr-mappings-panel" style="display: none;">
+                            <!-- Header -->
+                            <div class="mfr-mappings-header">
+                                <div class="mfr-mappings-header-left">
+                                    <h3>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                                            <circle cx="12" cy="12" r="3"/>
+                                        </svg>
+                                        Column Mapping Rules
+                                    </h3>
+                                    <button class="bulk-rules-info-trigger" type="button" aria-label="Help">
+                                        ?
+                                        <span class="bulk-rules-info-tooltip">
+                                            Keywords are matched against spreadsheet column headers during Auto Map. Each distributor can have its own keywords. Universal keywords are used as a fallback when a distributor has no saved values for a field.
+                                        </span>
+                                    </button>
+                                </div>
+                                <button class="mfr-mappings-close" onclick="bulkToggleMappingRulesPanel()" title="Close">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M18 6 6 18M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <!-- Hint bar -->
+                            <div class="bulk-rules-hint">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                                Click any cell to edit &middot; Comma-separated keywords &middot; Drag column borders to resize
+                            </div>
+                            <!-- Table -->
+                            <div class="bulk-rules-table-wrap" id="bulkMappingRulesTableContainer">
+                                <table class="mfr-mappings-table bulk-rules-table">
+                                    <colgroup id="bulkMappingRulesColgroup">
+                                        <col style="width: 100px;">
+                                        <col style="width: 70px;">
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                        <col>
+                                    </colgroup>
+                                    <thead>
+                                        <tr id="bulkMappingRulesHeaderRow"></tr>
+                                    </thead>
+                                    <tbody id="bulkMappingRulesTableBody"></tbody>
+                                </table>
+                            </div>
+                            <!-- Resize handle -->
+                            <div class="bulk-rules-resize-handle" id="bulkMappingRulesResize">
+                                <div class="bulk-rules-resize-grip"></div>
+                            </div>
+                        </div>
+
+                        <!-- Bulk Manufacturer Name Mappings Panel (view-only) -->
+                        <div id="bulkMfrMappingsPanel" class="mfr-mappings-panel" style="display: none;">
+                            <div class="mfr-mappings-header">
+                                <div class="mfr-mappings-header-left">
+                                    <h3>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                                        </svg>
+                                        Manufacturer Name Mappings
+                                    </h3>
+                                    <span id="bulkMfrMappingsCount" class="mfr-mappings-count">0</span>
+                                </div>
+                                <button class="mfr-mappings-close" onclick="toggleMfrMappingsPanel()" title="Close">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M18 6 6 18M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="mfr-mappings-hint">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                                Reference view of existing mapped values that associate distributor's manufacturer naming conventions to singular Zoho common manufacturer names.
+                            </div>
+                            <div class="mfr-mappings-table-container" id="bulkMfrMappingsTableContainer">
+                                <table class="mfr-mappings-table">
+                                    <colgroup>
+                                        <col class="mfr-col-common">
+                                        <col class="mfr-col-dist">
+                                        <col class="mfr-col-dist">
+                                    </colgroup>
+                                    <thead>
+                                        <tr>
+                                            <th>Zoho Common Name</th>
+                                            <th class="mfr-th-ingram">Ingram Micro</th>
+                                            <th class="mfr-th-synnex">TD Synnex</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bulkMfrMappingsTableBody">
+                                        <!-- Populated by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="mfr-mappings-resize" id="bulkMfrMappingsResize">
+                                <div class="mfr-mappings-resize-grip"></div>
+                            </div>
+                        </div>
+
+                        <!-- Spreadsheet Preview (Phase 3) -->
+                        <div class="preview-row" id="bulkPreviewRow" style="display: none;">
+                            <div class="bulk-collapsible-header" data-section="bulkPreviewSectionContainer" onclick="bulkToggleSection('bulkPreviewSectionContainer')">
+                                <svg class="bulk-collapse-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4,2 8,6 4,10"/></svg>
+                                <span>Spreadsheet Preview</span>
+                            </div>
+                            <div class="preview-section-container bulk-section-content" id="bulkPreviewSectionContainer">
+                                <div class="spreadsheet-preview" id="bulkSpreadsheetPreview">
+                                    <div class="preview-header">
+                                        <span class="preview-title">Spreadsheet Preview</span>
+                                        <span class="preview-info" id="bulkPreviewInfo"></span>
+                                        <div class="preview-controls">
+                                            <button class="zoom-btn" onclick="bulkZoomPreview(-1)" title="Zoom Out">&minus;</button>
+                                            <span class="zoom-level" id="bulkZoomLevel">55%</span>
+                                            <button class="zoom-btn" onclick="bulkZoomPreview(1)" title="Zoom In">+</button>
+                                        </div>
+                                    </div>
+                                    <div class="selection-toolbar" id="bulkSelectionToolbar">
+                                        <span class="selection-toolbar-label">Click to set:</span>
+                                        <button class="sel-btn row-mode" data-mode="headerRow" onclick="bulkToggleSelectionMode('headerRow')" title="Click a row to set as header"><span class="sel-btn-icon">&#9654;</span> Header</button>
+                                        <button class="sel-btn row-mode" data-mode="lastRow" onclick="bulkToggleSelectionMode('lastRow')" title="Click a row to set as last row"><span class="sel-btn-icon">&#9632;</span> Last</button>
+                                        <span class="sel-divider"></span>
+                                        <button class="sel-btn ident-mode" data-mode="mpnCol" onclick="bulkToggleSelectionMode('mpnCol')" title="Click column header to set MPN">MPN</button>
+                                        <button class="sel-btn ident-mode" data-mode="vpnCol" onclick="bulkToggleSelectionMode('vpnCol')" title="Click column header to set VPN">VPN</button>
+                                        <span class="sel-divider"></span>
+                                        <button class="sel-btn pricing-mode" data-mode="msrpCol" onclick="bulkToggleSelectionMode('msrpCol')" title="Set MSRP column">MSRP</button>
+                                        <button class="sel-btn pricing-mode" data-mode="priceCol" onclick="bulkToggleSelectionMode('priceCol')" title="Set Price column">Price</button>
+                                        <button class="sel-btn pricing-mode" data-mode="qtyCol" onclick="bulkToggleSelectionMode('qtyCol')" title="Set QTY column">QTY</button>
+                                        <span class="sel-divider"></span>
+                                        <button class="sel-btn hide-mode" data-mode="hideCol" onclick="bulkToggleSelectionMode('hideCol')" title="Hide/show columns">Hide Cols</button>
+                                        <button class="sel-btn hide-mode" data-mode="hideRow" onclick="bulkToggleSelectionMode('hideRow')" title="Hide/show rows">Hide Rows</button>
+                                        <span class="sel-divider"></span>
+                                        <button class="sel-btn reset-mode" onclick="bulkResetColumnMappings()" title="Reset all mappings">&#x21BA; Reset</button>
+                                    </div>
+                                    <div class="preview-container" id="bulkPreviewContainer">
+                                        <div class="preview-table-wrapper" id="bulkPreviewTableWrapper">
+                                            <table class="preview-table" id="bulkPreviewTable">
+                                                <thead id="bulkPreviewTableHead"></thead>
+                                                <tbody id="bulkPreviewTableBody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <div class="preview-legend">
+                                        <div class="legend-item"><span class="legend-color" style="background: #3D8B47;"></span><span>Header Row</span></div>
+                                        <div class="legend-item"><span class="legend-color" style="background: #B84242;"></span><span>Last Row</span></div>
+                                        <div class="legend-item"><span class="legend-color" style="background: #2E6DA4;"></span><span>MPN</span></div>
+                                        <div class="legend-item"><span class="legend-color" style="background: #2A8C7A;"></span><span>VPN</span></div>
+                                        <div class="legend-item"><span class="legend-color" style="background: #A07828;"></span><span>MSRP / Price / QTY</span></div>
+                                    </div>
+                                </div>
+                                <div class="preview-resize-handle" id="bulkPreviewResizeHandle">
+                                    <div class="preview-resize-grip"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Parsed MPNs (Phase 3) -->
+                        <div class="parsed-row" id="bulkParsedRow" style="display: none;">
+                            <div class="bulk-collapsible-header" data-section="bulkParsedContent" onclick="bulkToggleSection('bulkParsedContent')">
+                                <svg class="bulk-collapse-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4,2 8,6 4,10"/></svg>
+                                <span>Parsed MPNs</span>
+                            </div>
+                            <div class="parsed-preview bulk-section-content" id="bulkParsedContent">
+                                <div class="parsed-header">
+                                    <span class="parsed-title">Parsed MPNs (editable)</span>
+                                    <span class="parsed-count" id="bulkParsedCount">0 SKUs</span>
+                                </div>
+                                <div class="parsed-skus" id="bulkParsedSkus">
+                                    <textarea class="parsed-skus-editable" id="bulkParsedSkusEditable"
+                                        placeholder="No MPNs parsed yet — values will appear here comma-separated"
+                                        oninput="bulkUpdateParsedFromEdit()"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bulk Action Bar (Phase 4) -->
+                        <div class="bulk-action-bar" id="bulkActionBar" style="display: none;">
+                            <button class="bulk-load-btn" id="bulkLoadProductsBtn" onclick="bulkLoadProducts()">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px; margin-right: 4px;">
+                                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                                </svg>
+                                Load Products
+                            </button>
+                            <button class="bulk-clear-btn" onclick="bulkClearSearch()">Clear All</button>
+                        </div>
+
+                        <!-- Progress Bar (Phase 4) -->
+                        <div class="bulk-progress" id="bulkProgress">
+                            <div class="bulk-progress-text" id="bulkProgressText"></div>
+                            <div class="bulk-progress-bar">
+                                <div class="bulk-progress-fill" id="bulkProgressFill" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- Loading spinner for file parse -->
+                        <div class="bulk-loading-spinner" id="bulkLoadingSpinner">
+                            Processing file...
+                        </div>
+
+                        <!-- Manufacturer Resolution Panel Anchor (bulk mode) -->
+                        <div id="bulkMfrResolutionAnchor"></div>
+
+                        <!-- Phase 5: Bulk Results Panel -->
+                        <div class="bulk-results-panel" id="bulkResultsPanel" style="display: none;">
+                            <div class="bulk-collapsible-header" data-section="bulkResultsContent" onclick="bulkToggleSection('bulkResultsContent')">
+                                <svg class="bulk-collapse-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4,2 8,6 4,10"/></svg>
+                                <span>Product Results</span>
+                            </div>
+                            <div class="bulk-section-content" id="bulkResultsContent">
+                            <div class="bulk-results-header">
+                                <div class="bulk-results-title">
+                                    <span class="bulk-results-title-text">Results</span>
+                                    <span class="bulk-results-count" id="bulkResultsCount">0 products</span>
+                                </div>
+                                <div class="bulk-mfr-badges" id="bulkMfrBadges"></div>
+                            </div>
+
+                            <div class="bulk-results-toolbar">
+                                <div class="bulk-results-toolbar-left">
+                                    <label class="bulk-results-select-all">
+                                        <input type="checkbox" id="bulkSelectAll" onchange="bulkToggleSelectAll()">
+                                        <span>Select All</span>
+                                    </label>
+                                    <button id="bulkMsrpReEditBtn" class="bulk-msrp-reedit-btn" onclick="bulkShowMsrpComparisonPanel()" style="display:none;">Edit MSRP Choices</button>
+                                </div>
+                                <button class="bulk-add-to-queue-btn" id="bulkAddToQueueBtn" onclick="bulkAddSelectedToQueue()" disabled>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                        <path d="M12 5v14M5 12h14" />
+                                    </svg>
+                                    Add to Queue
+                                </button>
+                            </div>
+
+                            <div class="bulk-table-container" id="bulkTableContainer">
+                                <table class="bulk-data-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="bulk-col-checkbox"></th>
+                                            <th class="bulk-col-part">Part Number</th>
+                                            <th class="bulk-col-desc">Description</th>
+                                            <th class="bulk-col-price">
+                                                <div class="bulk-results-pricing-toggle" id="bulkResultsPricingToggle">
+                                                    <button class="pricing-toggle-btn active" data-price="reseller" onclick="bulkSetResultsPricingMode('reseller')">Reseller</button>
+                                                    <button class="pricing-toggle-btn" data-price="msrp" onclick="bulkSetResultsPricingMode('msrp')">MSRP</button>
+                                                </div>
+                                            </th>
+                                            <th class="bulk-col-indicator"></th>
+                                            <th class="bulk-col-action"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bulkProductsBody"></tbody>
+                                </table>
+                                <div class="bulk-empty-state" id="bulkEmptyState">
+                                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <path d="M21 21l-4.35-4.35"></path>
+                                    </svg>
+                                    <p>Load products above to see results</p>
+                                </div>
+                            </div>
+                            <div class="bulk-pagination" id="bulkPagination" style="display: none;">
+                                <button class="bulk-pagination-btn" id="bulkPrevPage" onclick="bulkChangePage(-1)">&#8592; Previous</button>
+                                <span id="bulkPageInfo">Page 1 of 1</span>
+                                <button class="bulk-pagination-btn" id="bulkNextPage" onclick="bulkChangePage(1)">Next &#8594;</button>
+                            </div>
+                            </div><!-- /.bulk-section-content #bulkResultsContent -->
+                        </div>
+                        <div class="preview-resize-handle" id="bulkResultsResizeHandle">
+                            <div class="preview-resize-grip"></div>
+                        </div>
+
+                        <!-- Phase 7b: MSRP Comparison Panel -->
+                        <div id="bulkMsrpComparisonPanel" class="bulk-msrp-comparison-panel" style="display:none;">
+                            <div class="bulk-msrp-comparison-header">
+                                <h4>MSRP Price Changes Detected</h4>
+                                <p class="bulk-msrp-comparison-subtitle">Some products have updated MSRPs not reflected in your distributor quote. Select which MSRP values to use in the table below.</p>
+                            </div>
+                            <div class="bulk-msrp-comparison-actions-top">
+                                <button onclick="bulkMsrpChooseAll('quote')" class="bulk-msrp-bulk-btn">Use All Quoted</button>
+                                <button onclick="bulkMsrpChooseAll('current')" class="bulk-msrp-bulk-btn">Use All Current</button>
+                            </div>
+                            <div class="bulk-msrp-comparison-table-wrapper">
+                                <table class="bulk-msrp-comparison-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Part Number</th>
+                                            <th>Description</th>
+                                            <th>Quoted<br>MSRP</th>
+                                            <th>Current<br>MSRP</th>
+                                            <th>Change</th>
+                                            <th>Use</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bulkMsrpComparisonBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="bulk-msrp-comparison-actions-bottom">
+                                <button onclick="bulkApplyMsrpChoices()" class="bulk-msrp-apply-btn">Apply &amp; Continue</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Details - Shared by Single & Bulk modes -->
+            <div class="details-panel" id="productDetailsSection" style="display: none;">
+                <div class="panel-header">
+                    <h2>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                        </svg>
+                        Product Details
+                    </h2>
+                    <button onclick="hideProductDetails()" class="btn-ghost btn-small">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 6 6 18M6 6l12 12"/>
+                        </svg>
+                        Close
+                    </button>
+                </div>
+
+                <div class="details-content">
+                    <div class="product-hero">
+                        <div class="product-name-row" id="detailsProductName"></div>
+                        <div class="product-meta" id="detailsSubtitle"></div>
+                    </div>
+                    <div class="product-description" id="detailsLongDesc"></div>
+
+                    <div class="details-section">
+                        <h4>Extended Details</h4>
+                        <div class="details-grid">
+                            <div class="details-card">
+                                <h5>Product Information</h5>
+                                <div class="field-grid" id="productInfoGrid"></div>
+                            </div>
+                            <div class="details-card">
+                                <h5>Pricing</h5>
+                                <div class="field-grid" id="pricingGrid"></div>
+                            </div>
+                            <div class="details-card">
+                                <h5>Availability</h5>
+                                <div class="field-grid" id="availabilityGrid"></div>
+                            </div>
+                            <div class="details-card">
+                                <h5>Product Flags</h5>
+                                <div class="field-grid" id="flagsGrid"></div>
+                            </div>
+                        </div>
+
+                        <div class="details-card full-width" id="discountsGroup" style="display: none;">
+                            <h5>Available Discounts</h5>
+                            <table class="mini-table">
+                                <thead>
+                                    <tr>
+                                        <th>Type</th>
+                                        <th>Bid Number</th>
+                                        <th class="text-right">Discount</th>
+                                        <th class="text-right">Qty</th>
+                                        <th>Effective</th>
+                                        <th>Expires</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="discountsBody"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="details-card full-width" id="warehouseSection" style="display: none;">
+                            <h5>Warehouse Availability</h5>
+                            <table class="mini-table">
+                                <thead>
+                                    <tr>
+                                        <th>Warehouse</th>
+                                        <th>Location</th>
+                                        <th class="text-right">Available</th>
+                                        <th class="text-right">Backordered</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="warehouseBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Discreet Raw API Toggle -->
+                    <div class="raw-api-toggle" id="rawApiToggle" onclick="toggleRawApi()">
+                        <span class="raw-api-icon">{&nbsp;}</span>
+                    </div>
+                    <div class="raw-api-container" id="rawApiContainer" style="display: none;">
+                        <pre id="rawApiResponse"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="action-footer">
+            <span id="footerStats"></span>
+            <span id="footerDateTime"></span>
+        </footer>
+    </div>
+
+    <script src="js/widget.js"></script>
+</body>
+</html>
