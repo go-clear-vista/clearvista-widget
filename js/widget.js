@@ -4108,11 +4108,8 @@ function setSearchMode(mode) {
         // Restore normal layout
         contentWrapper.classList.remove('bulk-mode-active');
         singlePanel.classList.remove('queue-only');
-        // Single mode: restore default distributor
-        state.currentDistributor = 'ingram';
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.distributor === 'ingram');
-        });
+        // Single mode: restore default distributor (full UI sync via selectDistributor)
+        selectDistributor('ingram');
     } else {
         // Hide single-mode content but keep queue (.right-panel) visible
         singlePanel.querySelectorAll('.left-panel').forEach(el => el.style.display = 'none');
