@@ -28,6 +28,12 @@ const DISTRIBUTORS = {
         name: 'TD Synnex',
         apiPrefix: '/tdsynnex',
         color: '#10b981'
+    },
+    adi: {
+        name: 'ADI Global',
+        apiPrefix: '/adi',
+        color: '#8b5cf6',
+        disabled: true
     }
 };
 
@@ -3327,6 +3333,7 @@ async function submitQueue() {
                 Product_Name: product.description || '',
                 Manufacturer: normalizedMfr,
                 TDSynnex_SKU: product.tdSynnexSkuNumber || '',
+                Replacement_SKU: product.replacementSku || '',
                 MSRP: msrp,
                 // Customer_Price MUST match what the queue displays as reseller price — no transformation
                 Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || product.contractPrice || product.unitCost || null,
@@ -3349,6 +3356,7 @@ async function submitQueue() {
             Product_Name: product.description || '',
             Manufacturer: normalizedMfr,
             Ingram_Micro_SKU: product.ingramPartNumber || '',
+            Replacement_SKU: product.replacementSku || '',
             MSRP: msrp,
             // Customer_Price MUST match what the queue displays as reseller price — no transformation
             Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || null,

@@ -266,6 +266,33 @@ body {
     cursor: not-allowed;
 }
 
+.tab-btn.coming-soon {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.tab-btn.coming-soon:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.coming-soon-badge {
+    position: absolute;
+    top: -6px;
+    right: -8px;
+    background: #8b5cf6;
+    color: #fff;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
 @keyframes pulse-attention {
     0%, 100% {
         box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
@@ -275,7 +302,7 @@ body {
     }
 }
 
-.distributor-tabs.pulse-attention .tab-btn {
+.distributor-tabs.pulse-attention .tab-btn:not(.coming-soon) {
     animation: pulse-attention 1.5s ease-in-out infinite;
     border-color: rgba(245, 158, 11, 0.6);
 }
