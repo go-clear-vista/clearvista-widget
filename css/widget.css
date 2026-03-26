@@ -319,7 +319,7 @@ body {
     font-weight: 800;
 }
 
-.coming-soon {
+.coming-soon:not(.tab-btn) {
     position: absolute;
     top: -4px;
     right: -4px;
