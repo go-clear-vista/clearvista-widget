@@ -3333,7 +3333,7 @@ async function submitQueue() {
                 Product_Name: product.description || '',
                 Manufacturer: normalizedMfr,
                 TDSynnex_SKU: product.tdSynnexSkuNumber || '',
-                Replacement_SKU: product.replacementSku || '',
+                Replacement_SKU: (product.replacementSku && product.replacementSku.trim() && !/^[\r\n]+$/.test(product.replacementSku)) ? product.replacementSku.trim() : 'None',
                 MSRP: msrp,
                 // Customer_Price MUST match what the queue displays as reseller price — no transformation
                 Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || product.contractPrice || product.unitCost || null,
@@ -3356,7 +3356,7 @@ async function submitQueue() {
             Product_Name: product.description || '',
             Manufacturer: normalizedMfr,
             Ingram_Micro_SKU: product.ingramPartNumber || '',
-            Replacement_SKU: product.replacementSku || '',
+            Replacement_SKU: (product.replacementSku && product.replacementSku.trim() && !/^[\r\n]+$/.test(product.replacementSku)) ? product.replacementSku.trim() : 'None',
             MSRP: msrp,
             // Customer_Price MUST match what the queue displays as reseller price — no transformation
             Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || null,
