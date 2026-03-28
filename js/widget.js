@@ -13,6 +13,7 @@
 const PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/ingram-proxy';
 const TDSYNNEX_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1';
 const TDSYNNEX_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/tdsynnex-proxy';
+const ADI_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/adi-proxy';
 const SUPABASE_URL = 'https://yasocskmsepalujntkau.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlhc29jc2ttc2VwYWx1am50a2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyMTIyNzUsImV4cCI6MjA4NDc4ODI3NX0.81g9I9iw1EbNOVCgOtNDTZtDavFMUbiprUMriSFd34c';
 const PAGE_SIZE = 50;
@@ -3845,18 +3846,44 @@ async function showProductDetails(productIndex) {
     // ADI GLOBAL PRODUCT DETAILS
     // ========================================
     if (isADI) {
-        const fullProductData = { ...product };
+        // Fetch live pricing/inventory from ADI proxy using VPN (item/adiSku)
+        const adiVpn = product.adiSku || product.distributorPartNumber || '';
+        let adiApiData = null;
+        let adiItemData = null;
+
+        if (adiVpn) {
+            try {
+                const adiResponse = await fetch(`${ADI_PROXY_BASE}?action=pricing&vpns=${encodeURIComponent(adiVpn)}`);
+                if (adiResponse.ok) {
+                    adiApiData = await adiResponse.json();
+                    // Extract item from ItemList array
+                    if (adiApiData?.ItemList && Array.isArray(adiApiData.ItemList) && adiApiData.ItemList.length > 0) {
+                        adiItemData = adiApiData.ItemList[0];
+                    }
+                }
+            } catch (err) {
+                console.error('[ADI Details] Error fetching pricing:', err);
+            }
+        }
+
+        const fullProductData = { ...product, adiApiResponse: adiApiData };
+
+        // Determine authorization from API response (AllowedToBuy: "Y"/"N")
+        const isAuthorized = adiItemData?.AllowedToBuy === 'Y';
+        const authorizedText = isAuthorized ? 'Yes' : 'No';
+        const authorizedClass = isAuthorized ? 'authorized-yes' : 'authorized-no';
 
         // Header - Product Name
         document.getElementById('detailsProductName').innerHTML = `
             <strong>Product Name:</strong> ${product.description || 'N/A'}
         `;
 
-        // Header - ADI SKU, Vendor Part, Manufacturer
+        // Header - ADI SKU, Vendor Part, Manufacturer, Authorized
         document.getElementById('detailsSubtitle').innerHTML = `
-            <strong>ADI SKU:</strong> ${product.adiSku || product.distributorPartNumber || 'N/A'} |
+            <strong>ADI SKU:</strong> ${adiVpn || 'N/A'} |
             <strong>Vendor Part:</strong> ${product.vendorPartNumber || 'N/A'} |
-            <strong>Manufacturer:</strong> ${product.vendorName || state.manufacturer}
+            <strong>Manufacturer:</strong> ${product.vendorName || state.manufacturer} |
+            <strong>Authorized:</strong> <span class="${authorizedClass}">${authorizedText}</span>
         `;
 
         // Long Description
@@ -3877,17 +3904,23 @@ async function showProductDetails(productIndex) {
         ];
         renderGrid('productInfoGrid', productInfoFields);
 
-        // Pricing Grid - ADI: MSRP and Customer Price from DB
+        // Pricing Grid - ADI: use live API price if available, fall back to DB
+        const adiLivePrice = adiItemData?.ItemPrice ? parseFloat(adiItemData.ItemPrice) : null;
+        const adiMsrp = product.pricingData?.pricing?.retailPrice;
+        const adiCustomerPrice = adiLivePrice || product.pricingData?.pricing?.customerPrice;
         const pricingFields = [
-            { label: 'MSRP', value: formatCurrency(product.pricingData?.pricing?.retailPrice) },
-            { label: 'Customer Price', value: formatCurrency(product.pricingData?.pricing?.customerPrice) }
+            { label: 'MSRP', value: formatCurrency(adiMsrp) },
+            { label: 'Customer Price', value: formatCurrency(adiCustomerPrice) }
         ];
         renderGrid('pricingGrid', pricingFields);
 
-        // Availability - ADI doesn't have availability in DB (only via live API per VPN)
+        // Availability from API — NationalInventory is a string number
+        const nationalInventoryStr = adiItemData?.NationalInventory;
+        const nationalInventory = nationalInventoryStr ? parseInt(nationalInventoryStr, 10) : 0;
+        const inStock = nationalInventory > 0;
         const availabilityFields = [
-            { label: 'In Stock', value: '-' },
-            { label: 'Available Qty', value: '-' }
+            { label: 'In Stock', value: yesNo(inStock) },
+            { label: 'Available Qty', value: nationalInventory || 0 }
         ];
         renderGrid('availabilityGrid', availabilityFields);
 
