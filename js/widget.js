@@ -3617,7 +3617,8 @@ async function showProductDetails(productIndex) {
     }
 
     const isTDSynnex = product._source === 'tdsynnex';
-    const distLabel = isTDSynnex ? 'TD Synnex' : 'Ingram';
+    const isADI = product._source === 'adi';
+    const distLabel = isTDSynnex ? 'TD Synnex' : isADI ? 'ADI Global' : 'Ingram';
     console.log(`[Details] Loading details for ${product.vendorPartNumber} (${distLabel})...`);
 
     const detailsSection = document.getElementById('productDetailsSection');
@@ -3835,6 +3836,71 @@ async function showProductDetails(productIndex) {
         } else {
             warehouseSection.style.display = 'none';
         }
+
+        document.getElementById('rawApiResponse').textContent = JSON.stringify(fullProductData, null, 2);
+        return;
+    }
+
+    // ========================================
+    // ADI GLOBAL PRODUCT DETAILS
+    // ========================================
+    if (isADI) {
+        const fullProductData = { ...product };
+
+        // Header - Product Name
+        document.getElementById('detailsProductName').innerHTML = `
+            <strong>Product Name:</strong> ${product.description || 'N/A'}
+        `;
+
+        // Header - ADI SKU, Vendor Part, Manufacturer
+        document.getElementById('detailsSubtitle').innerHTML = `
+            <strong>ADI SKU:</strong> ${product.adiSku || product.distributorPartNumber || 'N/A'} |
+            <strong>Vendor Part:</strong> ${product.vendorPartNumber || 'N/A'} |
+            <strong>Manufacturer:</strong> ${product.vendorName || state.manufacturer}
+        `;
+
+        // Long Description
+        const longDesc = product.extraDescription || '';
+        const longDescEl = document.getElementById('detailsLongDesc');
+        if (longDesc) {
+            longDescEl.innerHTML = `<strong>Long Description:</strong> ${longDesc}`;
+            longDescEl.style.display = 'block';
+        } else {
+            longDescEl.style.display = 'none';
+        }
+
+        // Product Information Grid - ADI specific
+        const productInfoFields = [
+            { label: 'Category 1', value: product.category || '-' },
+            { label: 'Category 2', value: product.category2 || '-' },
+            { label: 'UPC', value: product.upcCode || '-' }
+        ];
+        renderGrid('productInfoGrid', productInfoFields);
+
+        // Pricing Grid - ADI: MSRP and Customer Price from DB
+        const pricingFields = [
+            { label: 'MSRP', value: formatCurrency(product.pricingData?.pricing?.retailPrice) },
+            { label: 'Customer Price', value: formatCurrency(product.pricingData?.pricing?.customerPrice) }
+        ];
+        renderGrid('pricingGrid', pricingFields);
+
+        // Availability - ADI doesn't have availability in DB (only via live API per VPN)
+        const availabilityFields = [
+            { label: 'In Stock', value: '-' },
+            { label: 'Available Qty', value: '-' }
+        ];
+        renderGrid('availabilityGrid', availabilityFields);
+
+        // No flags for ADI
+        renderFlagsGrid('flagsGrid', []);
+
+        // No discounts section for ADI
+        const discountsGroup = document.getElementById('discountsGroup');
+        if (discountsGroup) discountsGroup.style.display = 'none';
+
+        // No warehouse section for ADI
+        const warehouseSection = document.getElementById('warehouseSection');
+        if (warehouseSection) warehouseSection.style.display = 'none';
 
         document.getElementById('rawApiResponse').textContent = JSON.stringify(fullProductData, null, 2);
         return;
@@ -6374,6 +6440,7 @@ function bulkFetchMpnBatch(mpns) {
     const rpcMap = {
         ingram: 'bulk_mpn_lookup_ingram',
         tdsynnex: 'bulk_mpn_lookup_tdsynnex',
+        adi: 'bulk_mpn_lookup_adi',
     };
     const fnName = rpcMap[state.currentDistributor];
     if (!fnName) throw new Error(`Unknown distributor: ${state.currentDistributor}`);
