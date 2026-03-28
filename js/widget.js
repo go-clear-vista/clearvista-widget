@@ -32,8 +32,7 @@ const DISTRIBUTORS = {
     adi: {
         name: 'ADI Global',
         apiPrefix: '/adi',
-        color: '#8b5cf6',
-        disabled: true
+        color: '#8b5cf6'
     }
 };
 
@@ -591,15 +590,32 @@ function selectDistributor(distributor) {
     // Remove/add Ingram mode from manufacturer combo
     const mfrComboEl = document.querySelector('.mfr-combo');
     if (mfrComboEl) {
-        mfrComboEl.classList.remove('ingram-mode');
+        mfrComboEl.classList.remove('ingram-mode', 'adi-mode');
     }
 
     if (distributor === 'tdsynnex') {
         // TD Synnex: Show cat3, hide SKU type
+        // Restore subcategory filter (may have been hidden by ADI)
+        const subCatFieldRestore = document.getElementById('subcategorySelect');
+        if (subCatFieldRestore) subCatFieldRestore.closest('.filter-field').style.display = '';
         if (cat3Field) cat3Field.style.display = '';
         if (skuTypeField) skuTypeField.style.display = 'none';
+    } else if (distributor === 'adi') {
+        // ADI Global: Hide cat3, hide SKU type, hide subcategory
+        if (cat3Field) cat3Field.style.display = 'none';
+        if (skuTypeField) skuTypeField.style.display = 'none';
+        // Hide subcategory filter for ADI
+        const subCatField = document.getElementById('subcategorySelect');
+        if (subCatField) subCatField.closest('.filter-field').style.display = 'none';
+        // ADI: pre-populate manufacturer dropdown, hide search input
+        if (mfrComboEl) mfrComboEl.classList.add('adi-mode');
+        // Pre-populate manufacturer and category_1 dropdowns
+        loadADIManufacturers();
     } else {
         // Ingram: Hide cat3, show Media Type filter (DB-driven)
+        // Restore subcategory filter (may have been hidden by ADI)
+        const subCatFieldRestore = document.getElementById('subcategorySelect');
+        if (subCatFieldRestore) subCatFieldRestore.closest('.filter-field').style.display = '';
         if (cat3Field) cat3Field.style.display = 'none';
         if (skuTypeField) skuTypeField.style.display = '';
         // Ingram: pre-populate manufacturer dropdown, hide search input
@@ -836,6 +852,36 @@ async function loadIngramManufacturers() {
         select.disabled = false;
     } catch (error) {
         console.error('[Ingram] Failed to load manufacturers:', error);
+        select.innerHTML = '<option value="">Error loading manufacturers</option>';
+    }
+}
+
+async function loadADIManufacturers() {
+    const select = document.getElementById('manufacturerSelect');
+    const countEl = document.getElementById('mfrCount');
+    try {
+        const response = await fetch(
+            `${SUPABASE_URL}/rest/v1/rpc/get_adi_manufacturers`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({})
+            }
+        );
+        if (!response.ok) throw new Error(`Failed: ${response.status}`);
+        const data = await response.json();
+        const manufacturers = data.map(r => r.manufacturer).filter(Boolean).sort();
+
+        select.innerHTML = '<option value="">-- Select Manufacturer --</option>' +
+            manufacturers.map(m => `<option value="${m}">${m}</option>`).join('');
+        if (countEl) countEl.textContent = `(${manufacturers.length})`;
+        select.disabled = false;
+    } catch (error) {
+        console.error('[ADI] Failed to load manufacturers:', error);
         select.innerHTML = '<option value="">Error loading manufacturers</option>';
     }
 }
@@ -1093,6 +1139,43 @@ function mapTDSynnexProduct(product) {
         // Source marker
         _source: 'tdsynnex',
         _rawProduct: product
+    };
+}
+
+function mapADIGlobalProduct(row) {
+    return {
+        // Core identifiers — MPN is product_code_mpn, VPN/SKU is item
+        vendorPartNumber: row.product_code_mpn || '',
+        ingramPartNumber: row.product_code_mpn || '', // Use MPN for display consistency
+        distributorPartNumber: row.item || '',
+        adiSku: row.item || '',
+
+        // Product info
+        description: row.item_desc || '',
+        vendorName: row.manufacturer || '',
+        category: row.category_1 || '',
+        category2: row.category_2 || '',
+
+        // Extended description — use vendor_part_desc if available
+        extraDescription: row.vendor_part_desc || row.item_desc || '',
+
+        // Pricing — ADI has current_price (reseller) and msrp
+        retailPrice: row.msrp ? parseFloat(row.msrp) : null,
+        pricingData: {
+            _dbSource: true,
+            pricing: {
+                retailPrice: row.msrp ? parseFloat(row.msrp) : null,
+                customerPrice: row.current_price ? parseFloat(row.current_price) : null
+            }
+        },
+        resellerPrice: row.current_price ? parseFloat(row.current_price) : null,
+
+        // UPC
+        upcCode: row.upc_number || '',
+
+        // Source marker
+        _source: 'adi',
+        _rawProduct: row
     };
 }
 
@@ -1542,6 +1625,33 @@ async function loadFilterOptions(filterType) {
                 categories = await loadTDSynnexCategories(state.manufacturer, state.category, state.subcategory);
             }
             items = categories.map(c => c.name);
+        } else if (state.currentDistributor === 'adi') {
+            // ADI Global: Only category filter supported (no subcategory, no cat3, no skuType)
+            if (filterType === 'category') {
+                const rpcBody = {
+                    p_manufacturer: state.manufacturer || null
+                };
+                const response = await fetch(
+                    `${SUPABASE_URL}/rest/v1/rpc/get_adi_categories`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': SUPABASE_ANON_KEY,
+                            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                        },
+                        body: JSON.stringify(rpcBody)
+                    }
+                );
+                if (response.ok) {
+                    const data = await response.json();
+                    items = (data || []).map(r => r.category_1).filter(Boolean).sort();
+                }
+            } else {
+                // ADI doesn't have subcategory, cat3, or skuType
+                state.loadingFilters[filterType] = false;
+                return;
+            }
         } else {
             // Ingram: Query Supabase DB for categories/subcategories/media_type
             let rpcFilterType;
@@ -1746,6 +1856,55 @@ async function loadProducts(page = 1) {
             });
             products = result.products;
             pagination = result.pagination;
+        } else if (state.currentDistributor === 'adi') {
+            // ADI Global: Query Supabase DB
+            const offset = (page - 1) * PAGE_SIZE;
+            const rpcBody = {
+                p_manufacturer: state.manufacturer,
+                p_search: (state.skuKeyword && state.skuKeyword.length >= 2) ? state.skuKeyword : null,
+                p_category_1: state.category || null,
+                p_limit: PAGE_SIZE,
+                p_offset: offset
+            };
+
+            // Fetch products and count in parallel
+            const [productsResponse, countResponse] = await Promise.all([
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_adi_products`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify(rpcBody)
+                }),
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_adi_products_count`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify({
+                        p_manufacturer: rpcBody.p_manufacturer,
+                        p_search: rpcBody.p_search,
+                        p_category_1: rpcBody.p_category_1
+                    })
+                })
+            ]);
+
+            const rows = await productsResponse.json();
+            const totalRecords = await countResponse.json();
+
+            products = (rows || []).map(row => mapADIGlobalProduct(row));
+
+            const totalPages = Math.ceil((totalRecords || 0) / PAGE_SIZE);
+            pagination = {
+                page: page,
+                pageSize: PAGE_SIZE,
+                totalPages: totalPages,
+                totalRecords: totalRecords || 0
+            };
         } else {
             // Ingram: Query Supabase DB
             const offset = (page - 1) * PAGE_SIZE;
@@ -3257,6 +3416,7 @@ async function submitQueue() {
                 let mapped;
                 switch (dist) {
                     case 'tdsynnex': mapped = mapTDSynnexProduct(raw); break;
+                    case 'adi': mapped = mapADIGlobalProduct(raw); break;
                     default: mapped = {
                         ingramPartNumber: raw.ingram_part_number || product._fileVpn || product.mpn || '',
                         vendorPartNumber: raw.vendor_part_number || raw.manufacturer_part_number || '',
@@ -3300,6 +3460,7 @@ async function submitQueue() {
                         customerDiscount: product.customerDiscount || 0,
                     ...(dist === 'ingram' && { ingramPartNumber: product._fileVpn || product.vpn || product.mpn || '' }),
                     ...(dist === 'tdsynnex' && { tdSynnexSkuNumber: product.vpn || '', distributorPartNumber: product.vpn || '' }),
+                    ...(dist === 'adi' && { adiSku: product.vpn || '', distributorPartNumber: product.vpn || '' }),
                 };
             }
         });
@@ -3347,6 +3508,25 @@ async function submitQueue() {
                 Kit_or_Standalone: product.kitStandaloneFlag === 'K' ? 'Yes' : 'No',
                 Quantity: product.qty || 1,
                         Customer_Discount: parseInt(product.customerDiscount) || 0
+            };
+        }
+
+        // ADI Global format
+        if (product._source === 'adi') {
+            return {
+                Product_Code: product.vendorPartNumber || '',
+                Product_Name: product.description || '',
+                Manufacturer: normalizedMfr,
+                ADI_SKU: product.adiSku || product.distributorPartNumber || '',
+                MSRP: msrp,
+                Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || null,
+                ADI_Category_1: product.category || '',
+                ADI_Category_2: product.category2 || '',
+                UPC: product.upcCode || '',
+                Description: product.extraDescription || '',
+                Last_Sync_Source: 'ADI Global',
+                Quantity: product.qty || 1,
+                Customer_Discount: parseInt(product.customerDiscount) || 0
             };
         }
 
@@ -6228,6 +6408,17 @@ function bulkMapRpcRowToProduct(row, distributor) {
                 category: row.category_description || '',
                 _source: 'tdsynnex',
             };
+        case 'adi':
+            return {
+                mpn: row.product_code_mpn || row.vendor_part_code || '',
+                vpn: row.item || '',
+                manufacturer: row.manufacturer || '',
+                description: row.item_desc || '',
+                msrp: parseFloat(row.msrp) || 0,
+                resellerPrice: parseFloat(row.current_price) || 0,
+                category: row.category_1 || '',
+                _source: 'adi',
+            };
         default:
             return { mpn: '', manufacturer: '', description: '', msrp: 0, resellerPrice: 0, _source: 'ingram' };
     }
@@ -7217,6 +7408,8 @@ function bulkDetectDistributor() {
             detected = 'tdsynnex';
         } else if (/ingrammicro\.com/.test(rowText) || /\bingram\b/.test(rowText)) {
             detected = 'ingram';
+        } else if (/adiglobal\.com/.test(rowText) || /\badi\s*global\b/.test(rowText) || /\badi\b/.test(rowText)) {
+            detected = 'adi';
         }
 
         if (detected) {

@@ -2770,6 +2770,12 @@ button svg {
     background: #ecfeff;
 }
 
+.mfr-source-badge.adi {
+    color: #7c3aed;
+    border-color: #ddd6fe;
+    background: #f5f3ff;
+}
+
 /* Select Dropdown */
 .mfr-select-wrapper {
     position: relative;
@@ -3372,11 +3378,13 @@ button svg {
 
 /* Arrow/Ingram mode: hide search input, expand select dropdown */
 .mfr-combo.arrow-mode input[type="text"],
-.mfr-combo.ingram-mode input[type="text"] {
+.mfr-combo.ingram-mode input[type="text"],
+.mfr-combo.adi-mode input[type="text"] {
     display: none;
 }
 .mfr-combo.arrow-mode select,
-.mfr-combo.ingram-mode select {
+.mfr-combo.ingram-mode select,
+.mfr-combo.adi-mode select {
     flex: 2;
 }
 
@@ -4158,6 +4166,10 @@ td.bulk-rules-col-collapsed .bulk-rules-cell-collapsed-indicator {
     border-left-color: #10b981;
     color: #047857;
 }
+.bulk-rules-table tbody tr[data-distributor="adi"] td:first-child {
+    border-left-color: #8b5cf6;
+    color: #6d28d9;
+}
 .bulk-rules-table tbody tr.bulk-rules-universal-row td:first-child {
     border-left-color: var(--color-text-muted);
 }
@@ -4249,6 +4261,11 @@ td.bulk-rules-col-collapsed .bulk-rules-cell-collapsed-indicator {
     background: rgba(16, 185, 129, 0.07);
     border-color: rgba(16, 185, 129, 0.22);
     color: #047857;
+}
+.bulk-rules-table tbody tr[data-distributor="adi"] .bulk-rules-keyword-tag {
+    background: rgba(139, 92, 246, 0.08);
+    border-color: rgba(139, 92, 246, 0.25);
+    color: #6d28d9;
 }
 
 /* Universal row keyword tags — muted */
