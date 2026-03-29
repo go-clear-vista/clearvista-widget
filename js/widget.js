@@ -6407,11 +6407,6 @@ function bulkUpdateParsedPreview() {
         editableEl.value = bulkState.parsedSkus.join(', ');
     }
 
-    // Auto-expand textarea to fit all content — temporarily collapse to measure true scrollHeight
-    editableEl.style.height = '1px';
-    const neededHeight = Math.max(editableEl.scrollHeight + 4, 48);
-    editableEl.style.height = neededHeight + 'px';
-
     // Show parsed row if there are SKUs to show
     if (bulkState.parsedSkus.length > 0) {
         const parsedRow = document.getElementById('bulkParsedRow');
