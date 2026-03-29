@@ -6407,11 +6407,10 @@ function bulkUpdateParsedPreview() {
         editableEl.value = bulkState.parsedSkus.join(', ');
     }
 
-    // Auto-expand textarea to fit all content
-    editableEl.style.height = '0';
-    editableEl.style.overflow = 'hidden';
-    editableEl.style.height = Math.max(editableEl.scrollHeight, 40) + 'px';
-    editableEl.style.overflow = 'auto';
+    // Auto-expand textarea to fit all content — temporarily collapse to measure true scrollHeight
+    editableEl.style.height = '1px';
+    const neededHeight = Math.max(editableEl.scrollHeight + 4, 48);
+    editableEl.style.height = neededHeight + 'px';
 
     // Show parsed row if there are SKUs to show
     if (bulkState.parsedSkus.length > 0) {
@@ -7773,7 +7772,7 @@ function bulkFetchMappingRules() {
         var distRow = null;
         var univRow = null;
         for (var i = 0; i < rows.length; i++) {
-            if (rows[i].distributor === distributor) distRow = rows[i];
+            if (rows[i].distributor === dbDistributorName) distRow = rows[i];
             if (rows[i].distributor === 'universal') univRow = rows[i];
         }
 
