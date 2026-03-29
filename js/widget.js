@@ -6170,7 +6170,7 @@ function bulkApplyColumnSelection() {
         const mpnRaw = row[selectedColumn];
         if (!mpnRaw || !String(mpnRaw).trim()) return; // Skip empty rows
 
-        const mpn = bulkConvertSpacesToHash(mpnRaw).toUpperCase();
+        const mpn = String(bulkConvertSpacesToHash(String(mpnRaw))).toUpperCase();
         if (seenMpns.has(mpn)) return; // Skip duplicates
         seenMpns.add(mpn);
 
