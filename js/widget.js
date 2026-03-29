@@ -7347,6 +7347,7 @@ function bulkApplyMsrpChoices() {
 
     bulkHideMsrpComparisonPanel();
     bulkDisplayResults();
+    scrollToPanel('bulkResultsPanel');
 
     // Show re-edit button if mismatches exist
     const reEditBtn = document.getElementById('bulkMsrpReEditBtn');
