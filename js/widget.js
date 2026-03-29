@@ -3644,6 +3644,33 @@ async function showProductDetails(productIndex) {
     if (rawContainer) rawContainer.style.display = 'none';
     if (rawToggle) rawToggle.classList.remove('active');
 
+    // Clear previous data and show loading indicator
+    document.getElementById('detailsProductName').innerHTML = '';
+    document.getElementById('detailsSubtitle').innerHTML = '';
+    var longDesc = document.getElementById('detailsLongDesc');
+    if (longDesc) longDesc.style.display = 'none';
+    ['productInfoGrid', 'pricingGrid', 'availabilityGrid', 'flagsGrid'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+    });
+    var discG = document.getElementById('discountsGroup');
+    if (discG) discG.style.display = 'none';
+    var whSec = document.getElementById('warehouseSection');
+    if (whSec) whSec.style.display = 'none';
+    document.getElementById('rawApiResponse').textContent = '';
+
+    // Show loading indicator inside details content
+    var detailsContent = document.querySelector('#productDetailsSection .details-content');
+    var loadingEl = document.getElementById('detailsLoadingIndicator');
+    if (!loadingEl && detailsContent) {
+        loadingEl = document.createElement('div');
+        loadingEl.id = 'detailsLoadingIndicator';
+        loadingEl.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;padding:32px 16px;color:var(--color-text-secondary);font-size:var(--font-size-sm);';
+        loadingEl.innerHTML = '<div style="width:20px;height:20px;border:2.5px solid var(--color-border);border-top-color:var(--color-accent);border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0;"></div>Loading realtime pricing and inventory data';
+        detailsContent.insertBefore(loadingEl, detailsContent.querySelector('.details-section'));
+    }
+    if (loadingEl) loadingEl.style.display = 'flex';
+
     // Helper functions (shared between distributors)
     const yesNo = (val) => {
         if (val === true) return 'Yes';
@@ -3850,6 +3877,9 @@ async function showProductDetails(productIndex) {
         }
 
         document.getElementById('rawApiResponse').textContent = JSON.stringify(fullProductData, null, 2);
+        var _li = document.getElementById('detailsLoadingIndicator');
+        if (_li) _li.style.display = 'none';
+        scrollToPanel('productDetailsSection');
         return;
     }
 
@@ -3947,6 +3977,9 @@ async function showProductDetails(productIndex) {
         if (warehouseSection) warehouseSection.style.display = 'none';
 
         document.getElementById('rawApiResponse').textContent = JSON.stringify(fullProductData, null, 2);
+        var _li = document.getElementById('detailsLoadingIndicator');
+        if (_li) _li.style.display = 'none';
+        scrollToPanel('productDetailsSection');
         return;
     }
 
@@ -4142,6 +4175,9 @@ async function showProductDetails(productIndex) {
     }
 
     document.getElementById('rawApiResponse').textContent = JSON.stringify(fullProductData, null, 2);
+    var _li = document.getElementById('detailsLoadingIndicator');
+    if (_li) _li.style.display = 'none';
+    scrollToPanel('productDetailsSection');
 }
 
 function hideProductDetails() {
