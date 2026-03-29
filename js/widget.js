@@ -3647,8 +3647,8 @@ async function showProductDetails(productIndex) {
     // Clear previous data and show loading indicator
     document.getElementById('detailsProductName').innerHTML = '';
     document.getElementById('detailsSubtitle').innerHTML = '';
-    var longDesc = document.getElementById('detailsLongDesc');
-    if (longDesc) longDesc.style.display = 'none';
+    var longDescClear = document.getElementById('detailsLongDesc');
+    if (longDescClear) longDescClear.style.display = 'none';
     ['productInfoGrid', 'pricingGrid', 'availabilityGrid', 'flagsGrid'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.innerHTML = '';
