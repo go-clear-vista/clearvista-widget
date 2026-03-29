@@ -4166,7 +4166,7 @@ td.bulk-rules-col-collapsed .bulk-rules-cell-collapsed-indicator {
     border-left-color: #10b981;
     color: #047857;
 }
-.bulk-rules-table tbody tr[data-distributor="adi"] td:first-child {
+.bulk-rules-table tbody tr[data-distributor="adiglobal"] td:first-child {
     border-left-color: #8b5cf6;
     color: #6d28d9;
 }
@@ -4262,7 +4262,7 @@ td.bulk-rules-col-collapsed .bulk-rules-cell-collapsed-indicator {
     border-color: rgba(16, 185, 129, 0.22);
     color: #047857;
 }
-.bulk-rules-table tbody tr[data-distributor="adi"] .bulk-rules-keyword-tag {
+.bulk-rules-table tbody tr[data-distributor="adiglobal"] .bulk-rules-keyword-tag {
     background: rgba(139, 92, 246, 0.08);
     border-color: rgba(139, 92, 246, 0.25);
     color: #6d28d9;

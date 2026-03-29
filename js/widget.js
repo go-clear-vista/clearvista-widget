@@ -4762,7 +4762,7 @@ var BULK_RULES_COLUMNS = [
     { key: 'msrp', label: 'MSRP', collapsible: true, editable: true }
 ];
 
-var BULK_RULES_DIST_NAMES = { ingram: 'Ingram Micro', tdsynnex: 'TD Synnex' };
+var BULK_RULES_DIST_NAMES = { ingram: 'Ingram Micro', tdsynnex: 'TD Synnex', adiglobal: 'ADI Global' };
 
 // Track collapsed columns and current edit cell
 var _bulkRuleCollapsedCols = {};
@@ -6407,9 +6407,11 @@ function bulkUpdateParsedPreview() {
         editableEl.value = bulkState.parsedSkus.join(', ');
     }
 
-    // Auto-expand textarea to fit content
-    editableEl.style.height = 'auto';
-    editableEl.style.height = editableEl.scrollHeight + 'px';
+    // Auto-expand textarea to fit all content
+    editableEl.style.height = '0';
+    editableEl.style.overflow = 'hidden';
+    editableEl.style.height = Math.max(editableEl.scrollHeight, 40) + 'px';
+    editableEl.style.overflow = 'auto';
 
     // Show parsed row if there are SKUs to show
     if (bulkState.parsedSkus.length > 0) {
@@ -7751,12 +7753,13 @@ function bulkFetchMappingRules() {
     // Fetch both distributor-specific and universal rules from Supabase
     // Returns a Promise resolving to { mpn: [...], qty: [...], price: [...], vpn: [...], msrp: [...] }
     var distributor = state.currentDistributor;
+    var dbDistributorName = distributor === 'adi' ? 'adiglobal' : distributor;
 
-    console.log('[BulkAutoMap] Fetching mapping rules for distributor:', distributor);
+    console.log('[BulkAutoMap] Fetching mapping rules for distributor:', dbDistributorName);
 
     // Query both the distributor row and universal row in one request
     var url = SUPABASE_URL + '/rest/v1/bulk_column_mapping_rules?distributor=in.(' +
-        encodeURIComponent(distributor) + ',universal)&select=distributor,mpn,qty,price,vpn,msrp';
+        encodeURIComponent(dbDistributorName) + ',universal)&select=distributor,mpn,qty,price,vpn,msrp';
 
     return fetch(url, {
         headers: {
