@@ -6407,6 +6407,10 @@ function bulkUpdateParsedPreview() {
         editableEl.value = bulkState.parsedSkus.join(', ');
     }
 
+    // Auto-expand textarea to fit content
+    editableEl.style.height = 'auto';
+    editableEl.style.height = editableEl.scrollHeight + 'px';
+
     // Show parsed row if there are SKUs to show
     if (bulkState.parsedSkus.length > 0) {
         const parsedRow = document.getElementById('bulkParsedRow');
@@ -7017,6 +7021,11 @@ function bulkDisplayResults() {
     tbody.innerHTML = html;
     bulkUpdateResultsSelectionUI();
     bulkUpdatePagination();
+
+    // Auto-expand results panel to fit content (up to 50 rows worth of height)
+    // Remove any previously set max-height so panel expands naturally
+    resultsPanel.style.maxHeight = 'none';
+    resultsPanel.style.overflow = 'visible';
 
     if (!bulkState.msrpMismatches || bulkState.msrpMismatches.length === 0) {
         document.getElementById('bulkResultsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });

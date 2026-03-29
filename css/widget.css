@@ -5092,7 +5092,7 @@ button.sel-btn .sel-btn-icon {
 .parsed-skus-editable {
     width: 100%;
     min-height: 1.6em;
-    max-height: 120px;
+    max-height: none;
     padding: var(--space-1);
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
@@ -5100,7 +5100,7 @@ button.sel-btn .sel-btn-icon {
     font-size: var(--font-size-xs);
     color: var(--color-text);
     background: transparent;
-    resize: none;
+    resize: vertical;
     overflow-y: auto;
     transition: all var(--transition-fast);
 }
