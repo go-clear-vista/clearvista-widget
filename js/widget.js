@@ -6251,7 +6251,7 @@ function bulkApplyColumnSelection() {
 }
 
 function bulkSaveColumnMappingsIfNeeded() {
-    var distNames = { ingram: 'Ingram Micro', tdsynnex: 'TD Synnex' };
+    var distNames = { ingram: 'Ingram Micro', tdsynnex: 'TD Synnex', adi: 'ADI Global' };
     var distributor = state.currentDistributor;
     if (!distributor) {
         console.log('[BulkSave] No distributor selected, skipping save');
@@ -6300,9 +6300,12 @@ function bulkSaveColumnMappingsIfNeeded() {
 
     console.log('[BulkSave] User selections:', userSelections);
 
+    // Map internal distributor ID to database column value
+    var dbDistributorName = distributor === 'adi' ? 'adiglobal' : distributor;
+
     // 2. Fetch current Supabase row for this distributor
     var fetchUrl = SUPABASE_URL + '/rest/v1/bulk_column_mapping_rules?distributor=eq.' +
-        encodeURIComponent(distributor) + '&select=distributor,mpn,qty,price,vpn,msrp';
+        encodeURIComponent(dbDistributorName) + '&select=distributor,mpn,qty,price,vpn,msrp';
 
     fetch(fetchUrl, {
         headers: {
@@ -6360,7 +6363,7 @@ function bulkSaveColumnMappingsIfNeeded() {
         console.log('[BulkSave] Saving mappings:', patchBody);
 
         var patchUrl = SUPABASE_URL + '/rest/v1/bulk_column_mapping_rules?distributor=eq.' +
-            encodeURIComponent(distributor);
+            encodeURIComponent(dbDistributorName);
 
         return fetch(patchUrl, {
             method: 'PATCH',
@@ -6638,6 +6641,8 @@ async function bulkLoadProducts() {
                 let mpnKey = '';
                 if (state.currentDistributor === 'ingram') {
                     mpnKey = (row.vendor_part_number || '').toUpperCase();
+                } else if (state.currentDistributor === 'adi') {
+                    mpnKey = (row.product_code_mpn || '').toUpperCase();
                 } else {
                     mpnKey = (row.manufacturer_part_number || '').toUpperCase();
                 }
