@@ -533,6 +533,15 @@ function reorderByGroups() {
 }
 
 // =====================================================
+// SCROLL-TO-FOCUS HELPER
+// =====================================================
+function scrollToPanel(el) {
+    if (!el) return;
+    if (typeof el === 'string') el = document.getElementById(el);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// =====================================================
 // RAW API TOGGLE
 // =====================================================
 function toggleRawApi() {
@@ -543,6 +552,7 @@ function toggleRawApi() {
     if (container && toggle) {
         container.style.display = state.rawApiVisible ? 'block' : 'none';
         toggle.classList.toggle('active', state.rawApiVisible);
+        if (state.rawApiVisible) scrollToPanel(container);
     }
 }
 
@@ -5300,6 +5310,7 @@ function bulkParsePastedSKUs() {
     bulkUpdateParsedPreview();
     bulkUpdateLoadButtonState();
     updateFooterStats();
+    scrollToPanel('bulkParsedRow');
 }
 
 // =====================================================
@@ -6230,6 +6241,7 @@ function bulkApplyColumnSelection() {
     // Show parsed row
     const parsedRow = document.getElementById('bulkParsedRow');
     if (parsedRow) parsedRow.style.display = '';
+    scrollToPanel('bulkParsedRow');
 
     // Count hidden rows in range for logging
     const hiddenInRange = [...bulkState.hiddenRows].filter(r => r >= startRow && r < endRow).length;
@@ -6738,6 +6750,7 @@ async function bulkLoadProducts() {
         } else {
             bulkState.resultsPricingMode = 'reseller';
             bulkDisplayResults();
+            scrollToPanel('bulkResultsPanel');
         }
 
     } catch (err) {
