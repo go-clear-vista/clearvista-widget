@@ -3090,6 +3090,7 @@ function renderMfrMappingsTable(isBulk) {
             '<td><span style="font-weight:600">' + escapeHtml(mapping.canonical_name) + '</span></td>' +
             renderAliasCell(mapping.ingram_micro_aliases, 'mfr-alias-tag-ingram') +
             renderAliasCell(mapping.td_synnex_aliases, 'mfr-alias-tag-synnex') +
+            renderAliasCell(mapping.adi_global_aliases, 'mfr-alias-tag-adi') +
             '</tr>';
     }).join('');
 }
@@ -4189,6 +4190,17 @@ function resetFilters() {
     }
     document.getElementById('mfrCount').textContent = '';
     document.getElementById('selectedMfrBadge').textContent = '';
+
+    // Re-apply distributor-specific mode class on manufacturer combo
+    const mfrComboEl = document.querySelector('.mfr-combo');
+    if (mfrComboEl) {
+        mfrComboEl.classList.remove('ingram-mode', 'adi-mode');
+        if (state.currentDistributor === 'ingram') {
+            mfrComboEl.classList.add('ingram-mode');
+        } else if (state.currentDistributor === 'adi') {
+            mfrComboEl.classList.add('adi-mode');
+        }
+    }
 
     // Clear SKU search input and reset placeholder
     const skuSearch = document.getElementById('skuSearch');
@@ -7116,6 +7128,13 @@ function bulkShowProductInfo(index) {
                 mapped = mapTDSynnexProduct(rawRow);
             } else {
                 mapped = { ...product, vendorPartNumber: product.mpn, _source: 'tdsynnex' };
+            }
+            break;
+        case 'adi':
+            if (rawRow) {
+                mapped = mapADIGlobalProduct(rawRow);
+            } else {
+                mapped = { ...product, vendorPartNumber: product.mpn, adiSku: product.vpn, _source: 'adi' };
             }
             break;
         case 'ingram':
