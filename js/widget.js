@@ -6407,7 +6407,7 @@ function bulkUpdateParsedPreview() {
         editableEl.value = bulkState.parsedSkus.join(', ');
     }
 
-    // Show parsed row if there are SKUs to show
+    // Show parsed row FIRST so element is visible for scrollHeight measurement
     if (bulkState.parsedSkus.length > 0) {
         const parsedRow = document.getElementById('bulkParsedRow');
         if (parsedRow) parsedRow.style.display = '';
@@ -6415,6 +6415,14 @@ function bulkUpdateParsedPreview() {
 
     const actionBar = document.getElementById('bulkActionBar');
     if (actionBar) actionBar.style.display = bulkState.parsedSkus.length > 0 ? '' : 'none';
+
+    // Auto-expand textarea AFTER parsedRow is visible — use rAF to ensure layout is complete
+    requestAnimationFrame(function() {
+        var el = document.getElementById('bulkParsedSkusEditable');
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = Math.max(48, el.scrollHeight + 4) + 'px';
+    });
 }
 
 function bulkUpdateParsedFromEdit() {
@@ -7465,6 +7473,16 @@ function bulkToggleSection(sectionId) {
         bulkState.collapsedSections.delete(sectionId);
         header.classList.remove('bulk-section-collapsed');
         content.classList.remove('bulk-section-hidden');
+
+        // Re-expand textarea after section becomes visible
+        if (sectionId === 'bulkParsedContent') {
+            requestAnimationFrame(function() {
+                var el = document.getElementById('bulkParsedSkusEditable');
+                if (!el || !el.value) return;
+                el.style.height = 'auto';
+                el.style.height = Math.max(48, el.scrollHeight + 4) + 'px';
+            });
+        }
     } else {
         bulkState.collapsedSections.add(sectionId);
         header.classList.add('bulk-section-collapsed');
