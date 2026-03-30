@@ -127,14 +127,14 @@ function handleAdminCogClick() {
 }
 
 function openAdminPanel() {
-    const panel = document.getElementById('adminPanel');
-    panel.style.display = 'flex';
+    document.getElementById('adminPanel').style.display = 'flex';
+    document.querySelector('.content-wrapper').style.display = 'none';
     state.adminPanelOpen = true;
 }
 
 function closeAdminPanel() {
-    const panel = document.getElementById('adminPanel');
-    panel.style.display = 'none';
+    document.getElementById('adminPanel').style.display = 'none';
+    document.querySelector('.content-wrapper').style.display = '';
     state.adminPanelOpen = false;
 }
 

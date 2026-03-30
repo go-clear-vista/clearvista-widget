@@ -5904,15 +5904,12 @@ button.sel-btn .sel-btn-icon {
    ADMIN PANEL OVERLAY
    ===================================================== */
 .admin-panel {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10000;
+    flex: 1;
+    z-index: 998;
     background: var(--color-bg);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     animation: adminSlideIn 0.2s ease-out;
 }
 
