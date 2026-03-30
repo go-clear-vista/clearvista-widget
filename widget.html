@@ -1,7 +1,7 @@
 <!--
   Distributor Product Lookup Widget — HTML
-  Version: 2.5
-  Updated: March 30, 2026 — Add A-Z letter filter bar to manufacturer filter admin
+  Version: 2.6
+  Updated: March 30, 2026 — Add Cancel button to filter save-success modal
   Supports: TD Synnex, Ingram Micro, ADI Global
 -->
 <!DOCTYPE html>
@@ -188,6 +188,7 @@
                                 <h3>Filter changes saved</h3>
                                 <p>Would you like to apply these changes now by running the data import, or wait for the next scheduled update?</p>
                                 <div class="mfr-admin-modal-actions">
+                                    <button class="mfr-admin-btn-cancel" onclick="mfrCancelModal()">Cancel</button>
                                     <button class="mfr-admin-btn-secondary" onclick="mfrDismissModal()">Wait for Scheduled Update</button>
                                     <button class="mfr-admin-btn-primary" onclick="mfrApplyNow()">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 2.8
- * Updated: March 30, 2026 — Fix admin panel sticky header and independent column scrolling
+ * Version: 3.0
+ * Updated: March 30, 2026 — Add A-Z letter filter scope toggle styles
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -6691,6 +6691,51 @@ button.sel-btn .sel-btn-icon {
     letter-spacing: 0.03em;
 }
 
+.mfr-letter-scope-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--color-border);
+    margin: 0 var(--space-2);
+}
+
+.mfr-letter-scope-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-left: auto;
+}
+
+.mfr-letter-scope-label {
+    font-size: var(--font-size-3xs);
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 2px;
+}
+
+.mfr-letter-scope-btn {
+    padding: 2px var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    background: transparent;
+    font-family: var(--font-family);
+    font-size: var(--font-size-3xs);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.mfr-letter-scope-btn:hover {
+    background: var(--color-border-light);
+    color: var(--color-text);
+}
+
+.mfr-letter-scope-btn.active {
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+    border-color: var(--color-primary);
+}
+
 /* ---- Pending Changes Bar ---- */
 .mfr-admin-pending-bar {
     display: flex;
@@ -6875,6 +6920,24 @@ button.sel-btn .sel-btn-icon {
 
 .mfr-admin-btn-primary:hover {
     background: var(--color-accent-light);
+}
+
+.mfr-admin-btn-cancel {
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    font-family: var(--font-family);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.mfr-admin-btn-cancel:hover {
+    color: var(--color-text);
+    background: var(--color-bg);
 }
 
 /* ---- Empty search results within columns ---- */

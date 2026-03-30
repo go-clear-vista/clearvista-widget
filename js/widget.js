@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 2.7
- * Updated: March 30, 2026 — A-Z letter filter bar for manufacturer filter admin
+ * Version: 2.9
+ * Updated: March 30, 2026 — Add A-Z letter filter scope toggle (Available/Included/Both)
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -101,6 +101,7 @@ const state = {
     adminFilterLoading: false,
     adminExpandedGroups: new Set(),
     adminLetterFilter: 'A',
+    adminLetterScope: 'available',
 };
 
 let searchTimeout = null;
@@ -450,8 +451,10 @@ function renderMfrColumns() {
 
     // Apply letter filter
     const letterFilter = state.adminLetterFilter;
-    const letterAvail = (letterFilter && letterFilter !== 'All') ? availNames.filter(n => n.charAt(0).toUpperCase() === letterFilter) : availNames;
-    const letterIncl = (letterFilter && letterFilter !== 'All') ? inclNames.filter(n => n.charAt(0).toUpperCase() === letterFilter) : inclNames;
+    const scope = state.adminLetterScope;
+    const applyLetter = letterFilter && letterFilter !== 'All';
+    const letterAvail = (applyLetter && (scope === 'available' || scope === 'both')) ? availNames.filter(n => n.charAt(0).toUpperCase() === letterFilter) : availNames;
+    const letterIncl = (applyLetter && (scope === 'included' || scope === 'both')) ? inclNames.filter(n => n.charAt(0).toUpperCase() === letterFilter) : inclNames;
 
     // Apply search filter
     const filteredAvail = availSearch ? letterAvail.filter(n => n.toUpperCase().includes(availSearch)) : letterAvail;
@@ -898,6 +901,13 @@ async function mfrSaveChanges() {
 }
 
 /**
+ * Cancel — dismiss the save success modal without re-rendering
+ */
+function mfrCancelModal() {
+    document.getElementById('mfrSaveModal').style.display = 'none';
+}
+
+/**
  * Dismiss the save success modal
  */
 function mfrDismissModal() {
@@ -979,7 +989,25 @@ function renderLetterBar() {
         html += `<button class="mfr-admin-letter-btn${isActive ? ' active' : ''}" ${!hasItems ? 'disabled' : ''} onclick="selectMfrLetter('${letter}')">${letter}</button>`;
     }
 
+    html += `<span class="mfr-letter-scope-divider"></span>`;
+    html += `<span class="mfr-letter-scope-group">`;
+    html += `<span class="mfr-letter-scope-label">Applies to:</span>`;
+    const scope = state.adminLetterScope;
+    html += `<button class="mfr-letter-scope-btn${scope === 'available' ? ' active' : ''}" onclick="setMfrLetterScope('available')">Available</button>`;
+    html += `<button class="mfr-letter-scope-btn${scope === 'included' ? ' active' : ''}" onclick="setMfrLetterScope('included')">Included</button>`;
+    html += `<button class="mfr-letter-scope-btn${scope === 'both' ? ' active' : ''}" onclick="setMfrLetterScope('both')">Both</button>`;
+    html += `</span>`;
+
     bar.innerHTML = html;
+}
+
+/**
+ * Set letter filter scope (available, included, both)
+ */
+function setMfrLetterScope(scope) {
+    state.adminLetterScope = scope;
+    renderLetterBar();
+    renderMfrColumns();
 }
 
 /**
