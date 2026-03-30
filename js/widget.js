@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 2.1
- * Updated: March 29, 2026 — Scroll-to-focus, Product Details loading indicator, Parsed MPNs auto-expand fix
+ * Version: 2.2
+ * Updated: March 30, 2026 — Admin panel foundation: triple-click cog, overlay panel, nav switching
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -90,6 +90,10 @@ const state = {
     manufacturerMappingsData: [],  // Cached mappings from Supabase
     searchMode: 'single',      // 'single' or 'bulk'
     verifiedIngramMfrs: new Set(),  // Session-level tracking for lazy API verification
+    // Admin
+    adminClickTimes: [],
+    adminPanelOpen: false,
+    currentAdminPage: 'mfr-filters',
 };
 
 let searchTimeout = null;
@@ -101,6 +105,52 @@ let isResizing = false;
 let isResizingQueue = false;
 let queueResizeStartX = 0;
 let queueResizeStartWidth = 0;
+
+// =====================================================
+// ADMIN PANEL
+// =====================================================
+
+/**
+ * Triple-click handler for admin cog — requires 3 clicks within 600ms
+ */
+function handleAdminCogClick() {
+    const now = Date.now();
+    state.adminClickTimes.push(now);
+
+    // Keep only clicks within last 600ms
+    state.adminClickTimes = state.adminClickTimes.filter(t => now - t < 600);
+
+    if (state.adminClickTimes.length >= 3) {
+        state.adminClickTimes = [];
+        openAdminPanel();
+    }
+}
+
+function openAdminPanel() {
+    const panel = document.getElementById('adminPanel');
+    panel.style.display = 'flex';
+    state.adminPanelOpen = true;
+}
+
+function closeAdminPanel() {
+    const panel = document.getElementById('adminPanel');
+    panel.style.display = 'none';
+    state.adminPanelOpen = false;
+}
+
+function selectAdminPage(pageId) {
+    // Update nav
+    document.querySelectorAll('.admin-nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.adminPage === pageId);
+    });
+
+    // Update content
+    document.querySelectorAll('.admin-page').forEach(page => {
+        page.classList.toggle('active', page.id === `adminPage-${pageId}`);
+    });
+
+    state.currentAdminPage = pageId;
+}
 
 // =====================================================
 // ZOHO SDK INITIALIZATION
