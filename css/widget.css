@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 2.7
- * Updated: March 30, 2026 — A-Z letter filter bar for manufacturer filter admin
+ * Version: 2.8
+ * Updated: March 30, 2026 — Fix admin panel sticky header and independent column scrolling
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -99,8 +99,9 @@ body {
 .widget-container {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100vh;
     position: relative;
+    overflow: hidden;
 }
 
 .content-wrapper {
@@ -5927,8 +5928,6 @@ button.sel-btn .sel-btn-icon {
     color: var(--color-text-inverse);
     border-bottom: 2px solid var(--color-accent);
     flex-shrink: 0;
-    position: sticky;
-    top: 0;
     z-index: 999;
 }
 
@@ -6308,6 +6307,7 @@ button.sel-btn .sel-btn-icon {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     overflow: hidden;
+    min-height: 0;
     box-shadow: var(--shadow-sm);
 }
 
