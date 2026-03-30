@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 2.3
- * Updated: March 30, 2026 — Manufacturer Filter Management admin page with LCP grouping
+ * Version: 2.7
+ * Updated: March 30, 2026 — A-Z letter filter bar for manufacturer filter admin
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -100,6 +100,7 @@ const state = {
     adminPending: {},
     adminFilterLoading: false,
     adminExpandedGroups: new Set(),
+    adminLetterFilter: 'A',
 };
 
 let searchTimeout = null;
@@ -179,6 +180,7 @@ const GITHUB_PROXY_BASE = `${SUPABASE_URL}/functions/v1/github-proxy`;
 function selectMfrAdminTab(dist) {
     state.adminActiveTab = dist;
     state.adminExpandedGroups.clear();
+    state.adminLetterFilter = 'A';
     // Update tab UI
     document.querySelectorAll('.mfr-admin-tab').forEach(t => {
         t.classList.toggle('active', t.dataset.dist === dist);
@@ -231,6 +233,7 @@ async function loadMfrFilterData(dist) {
         showMfrLoading(false);
         showMfrColumns(true);
         renderMfrStats(dist, data);
+        renderLetterBar();
         renderMfrColumns();
         updateMfrPendingBar();
     } catch (err) {
@@ -445,9 +448,14 @@ function renderMfrColumns() {
     const availNames = allNames.filter(n => !activeSet.has(n));
     const inclNames = allNames.filter(n => activeSet.has(n));
 
+    // Apply letter filter
+    const letterFilter = state.adminLetterFilter;
+    const letterAvail = (letterFilter && letterFilter !== 'All') ? availNames.filter(n => n.charAt(0).toUpperCase() === letterFilter) : availNames;
+    const letterIncl = (letterFilter && letterFilter !== 'All') ? inclNames.filter(n => n.charAt(0).toUpperCase() === letterFilter) : inclNames;
+
     // Apply search filter
-    const filteredAvail = availSearch ? availNames.filter(n => n.toUpperCase().includes(availSearch)) : availNames;
-    const filteredIncl = inclSearch ? inclNames.filter(n => n.toUpperCase().includes(inclSearch)) : inclNames;
+    const filteredAvail = availSearch ? letterAvail.filter(n => n.toUpperCase().includes(availSearch)) : letterAvail;
+    const filteredIncl = inclSearch ? letterIncl.filter(n => n.toUpperCase().includes(inclSearch)) : letterIncl;
 
     // Render columns
     const availList = document.getElementById('mfrAvailList');
@@ -482,17 +490,45 @@ function renderFlatList(names, details, side, pending) {
         ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>'
         : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>';
 
-    return sorted.map(name => {
+    // Separate pending items from non-pending items
+    const pendingItems = [];
+    const normalItems = [];
+    sorted.forEach(name => {
+        const isPendingAdd = pending.additions.has(name);
+        const isPendingRemove = pending.removals.has(name);
+        if ((side === 'included' && isPendingAdd) || (side === 'avail' && isPendingRemove)) {
+            pendingItems.push(name);
+        } else {
+            normalItems.push(name);
+        }
+    });
+
+    const renderItem = (name, showBadge) => {
         const sku = details[name]?.sku_count || 0;
         const pendClass = pending.additions.has(name) ? ' mfr-admin-item--pending-add'
                         : pending.removals.has(name) ? ' mfr-admin-item--pending-remove' : '';
         const action = side === 'avail' ? `mfrIncludeName('${escAttr(name)}')` : `mfrExcludeName('${escAttr(name)}')`;
+        const badge = showBadge
+            ? (side === 'included'
+                ? '<span class="mfr-admin-pending-badge mfr-admin-pending-badge--add">+</span>'
+                : '<span class="mfr-admin-pending-badge mfr-admin-pending-badge--remove">\u2212</span>')
+            : '';
         return `<div class="mfr-admin-item${pendClass}" onclick="${action}">
-            <span class="mfr-admin-item-name" title="${escAttr(name)}">${escHtml(name)}</span>
+            ${badge}<span class="mfr-admin-item-name" title="${escAttr(name)}">${escHtml(name)}</span>
             <span class="mfr-admin-item-sku">${fmtNum(sku)}</span>
             <span class="mfr-admin-item-arrow">${arrowSvg}</span>
         </div>`;
-    }).join('');
+    };
+
+    let html = '';
+    if (pendingItems.length > 0) {
+        html += pendingItems.map(n => renderItem(n, true)).join('');
+        if (normalItems.length > 0) {
+            html += '<div class="mfr-admin-pending-separator">All Manufacturers</div>';
+        }
+    }
+    html += normalItems.map(n => renderItem(n, false)).join('');
+    return html;
 }
 
 /**
@@ -508,19 +544,23 @@ function renderGroupedList(names, details, side, pending) {
         : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>';
     const chevronSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>';
 
-    return groups.map(g => {
-        if (g.type === 'single') {
-            const pendClass = pending.additions.has(g.name) ? ' mfr-admin-item--pending-add'
-                            : pending.removals.has(g.name) ? ' mfr-admin-item--pending-remove' : '';
-            const action = side === 'avail' ? `mfrIncludeName('${escAttr(g.name)}')` : `mfrExcludeName('${escAttr(g.name)}')`;
-            return `<div class="mfr-admin-item${pendClass}" onclick="${action}">
-                <span class="mfr-admin-item-name" title="${escAttr(g.name)}">${escHtml(g.name)}</span>
-                <span class="mfr-admin-item-sku">${fmtNum(g.skuCount)}</span>
-                <span class="mfr-admin-item-arrow">${arrowSvg}</span>
-            </div>`;
-        }
+    const renderSingle = (g, showBadge) => {
+        const pendClass = pending.additions.has(g.name) ? ' mfr-admin-item--pending-add'
+                        : pending.removals.has(g.name) ? ' mfr-admin-item--pending-remove' : '';
+        const action = side === 'avail' ? `mfrIncludeName('${escAttr(g.name)}')` : `mfrExcludeName('${escAttr(g.name)}')`;
+        const badge = showBadge
+            ? (side === 'included'
+                ? '<span class="mfr-admin-pending-badge mfr-admin-pending-badge--add">+</span>'
+                : '<span class="mfr-admin-pending-badge mfr-admin-pending-badge--remove">\u2212</span>')
+            : '';
+        return `<div class="mfr-admin-item${pendClass}" onclick="${action}">
+            ${badge}<span class="mfr-admin-item-name" title="${escAttr(g.name)}">${escHtml(g.name)}</span>
+            <span class="mfr-admin-item-sku">${fmtNum(g.skuCount)}</span>
+            <span class="mfr-admin-item-arrow">${arrowSvg}</span>
+        </div>`;
+    };
 
-        // Group
+    const renderGroup = (g, showBadge) => {
         const groupId = `grp-${side}-${escAttr(g.prefix).replace(/\s+/g, '-')}`;
         const isExpanded = state.adminExpandedGroups.has(groupId);
 
@@ -533,6 +573,12 @@ function renderGroupedList(names, details, side, pending) {
         else if (allPendingRemove) groupPendClass = ' mfr-admin-group--pending-remove';
         else if (anyPending) groupPendClass = ' mfr-admin-group--partial';
 
+        const badge = showBadge
+            ? (side === 'included'
+                ? '<span class="mfr-admin-pending-badge mfr-admin-pending-badge--add">+</span>'
+                : '<span class="mfr-admin-pending-badge mfr-admin-pending-badge--remove">\u2212</span>')
+            : '';
+
         const groupAction = side === 'avail' ? `mfrIncludeGroup(event, ${JSON.stringify(g.members).replace(/"/g, '&quot;')})` : `mfrExcludeGroup(event, ${JSON.stringify(g.members).replace(/"/g, '&quot;')})`;
 
         const children = g.members.map(name => {
@@ -540,7 +586,6 @@ function renderGroupedList(names, details, side, pending) {
             const pendClass = pending.additions.has(name) ? ' mfr-admin-item--pending-add'
                             : pending.removals.has(name) ? ' mfr-admin-item--pending-remove' : '';
             const action = side === 'avail' ? `mfrIncludeName('${escAttr(name)}')` : `mfrExcludeName('${escAttr(name)}')`;
-            // Show the suffix part after the prefix for readability
             const suffix = name.substring(g.prefix.length).trim() || name;
             return `<div class="mfr-admin-item${pendClass}" onclick="event.stopPropagation(); ${action}">
                 <span class="mfr-admin-item-name" title="${escAttr(name)}">${escHtml(suffix)}</span>
@@ -551,7 +596,7 @@ function renderGroupedList(names, details, side, pending) {
 
         return `<div class="mfr-admin-group${groupPendClass}">
             <div class="mfr-admin-group-header" onclick="${groupAction}">
-                <span class="mfr-admin-group-chevron${isExpanded ? ' expanded' : ''}" onclick="event.stopPropagation(); toggleMfrGroup('${groupId}')">
+                ${badge}<span class="mfr-admin-group-chevron${isExpanded ? ' expanded' : ''}" onclick="event.stopPropagation(); toggleMfrGroup('${groupId}')">
                     ${chevronSvg}
                 </span>
                 <span class="mfr-admin-group-name" title="${escAttr(g.prefix)}">${escHtml(g.prefix)}</span>
@@ -565,7 +610,41 @@ function renderGroupedList(names, details, side, pending) {
                 ${children}
             </div>
         </div>`;
-    }).join('');
+    };
+
+    // Separate groups into pending and non-pending
+    const pendingGroups = [];
+    const normalGroups = [];
+    groups.forEach(g => {
+        if (g.type === 'single') {
+            const isPendingAdd = pending.additions.has(g.name);
+            const isPendingRemove = pending.removals.has(g.name);
+            if ((side === 'included' && isPendingAdd) || (side === 'avail' && isPendingRemove)) {
+                pendingGroups.push(g);
+            } else {
+                normalGroups.push(g);
+            }
+        } else {
+            // For groups: only float if ALL members are pending in the relevant direction
+            const allPendingAdd = g.members.every(m => pending.additions.has(m));
+            const allPendingRemove = g.members.every(m => pending.removals.has(m));
+            if ((side === 'included' && allPendingAdd) || (side === 'avail' && allPendingRemove)) {
+                pendingGroups.push(g);
+            } else {
+                normalGroups.push(g);
+            }
+        }
+    });
+
+    let html = '';
+    if (pendingGroups.length > 0) {
+        html += pendingGroups.map(g => g.type === 'single' ? renderSingle(g, true) : renderGroup(g, true)).join('');
+        if (normalGroups.length > 0) {
+            html += '<div class="mfr-admin-pending-separator">All Manufacturers</div>';
+        }
+    }
+    html += normalGroups.map(g => g.type === 'single' ? renderSingle(g, false) : renderGroup(g, false)).join('');
+    return html;
 }
 
 /**
@@ -739,8 +818,10 @@ function ensurePending(dist) {
 function updateMfrPendingBar() {
     const dist = state.adminActiveTab;
     const p = state.adminPending[dist];
-    const bar = document.getElementById('mfrPendingBar');
-    const summary = document.getElementById('mfrPendingSummary');
+    const bar = document.getElementById('adminHeaderActions');
+    const summary = document.getElementById('adminHeaderPendingText');
+
+    if (!bar) return;
 
     if (!p || (p.additions.size === 0 && p.removals.size === 0)) {
         bar.style.display = 'none';
@@ -771,7 +852,7 @@ async function mfrSaveChanges() {
     const p = state.adminPending[dist];
     if (!p || (p.additions.size === 0 && p.removals.size === 0)) return;
 
-    const saveBtn = document.querySelector('.mfr-admin-btn-save');
+    const saveBtn = document.querySelector('.admin-header-btn-save');
     const origText = saveBtn.innerHTML;
     saveBtn.innerHTML = '<div class="mfr-admin-spinner" style="width:14px;height:14px;border-width:2px;"></div> Saving...';
     saveBtn.disabled = true;
@@ -794,9 +875,15 @@ async function mfrSaveChanges() {
             return;
         }
 
+        // Optimistic update: apply pending changes to local state
+        const effectiveActive = [...getEffectiveActiveSet(dist)];
+        state.adminFilterData[dist].active_manufacturers = effectiveActive;
+
         // Clear pending
         state.adminPending[dist] = { additions: new Set(), removals: new Set() };
         updateMfrPendingBar();
+        renderMfrColumns();
+        renderMfrStats(dist, state.adminFilterData[dist]);
 
         // Show success modal
         document.getElementById('mfrSaveModal').style.display = 'flex';
@@ -815,8 +902,7 @@ async function mfrSaveChanges() {
  */
 function mfrDismissModal() {
     document.getElementById('mfrSaveModal').style.display = 'none';
-    // Reload data to reflect saved state
-    loadMfrFilterData(state.adminActiveTab);
+    renderMfrColumns();
 }
 
 /**
@@ -840,9 +926,6 @@ async function mfrApplyNow() {
     } catch (err) {
         console.error('Dispatch error:', err);
     }
-
-    // Reload data
-    loadMfrFilterData(state.adminActiveTab);
 }
 
 /**
@@ -859,6 +942,53 @@ function escHtml(str) {
  */
 function escAttr(str) {
     return str.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Render the A-Z letter filter bar
+ */
+function renderLetterBar() {
+    const dist = state.adminActiveTab;
+    const data = state.adminFilterData[dist];
+    const bar = document.getElementById('mfrLetterBar');
+    if (!bar) return;
+
+    if (!data) {
+        bar.innerHTML = '';
+        return;
+    }
+
+    const allNames = data.all_known_manufacturers || [];
+    // Count which letters have manufacturers
+    const letterCounts = {};
+    for (const name of allNames) {
+        const letter = name.charAt(0).toUpperCase();
+        if (/[A-Z]/.test(letter)) {
+            letterCounts[letter] = (letterCounts[letter] || 0) + 1;
+        }
+    }
+
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    const currentFilter = state.adminLetterFilter;
+
+    let html = `<button class="mfr-admin-letter-btn mfr-admin-letter-btn--all${currentFilter === 'All' ? ' active' : ''}" onclick="selectMfrLetter('All')">All</button>`;
+
+    for (const letter of letters) {
+        const hasItems = letterCounts[letter] > 0;
+        const isActive = currentFilter === letter;
+        html += `<button class="mfr-admin-letter-btn${isActive ? ' active' : ''}" ${!hasItems ? 'disabled' : ''} onclick="selectMfrLetter('${letter}')">${letter}</button>`;
+    }
+
+    bar.innerHTML = html;
+}
+
+/**
+ * Select a letter filter
+ */
+function selectMfrLetter(letter) {
+    state.adminLetterFilter = letter;
+    renderLetterBar();
+    renderMfrColumns();
 }
 
 // =====================================================
