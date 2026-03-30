@@ -1,10 +1,12 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Supports: TD Synnex, Ingram Micro
+ * Version: 2.1
+ * Updated: March 29, 2026 — Scroll-to-focus, Product Details loading indicator, Parsed MPNs auto-expand fix
+ * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
- *           customer discount %, smart column auto-mapping, lazy API manufacturer verification
- * Updated: March 2026 - Ingram DB migration, lazy mfr verification
+ *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
+ *           scroll-to-focus panel transitions, product details loading UX
  */
 
 // =====================================================
