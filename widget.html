@@ -1,7 +1,7 @@
 <!--
   Distributor Product Lookup Widget — HTML
-  Version: 2.2
-  Updated: March 30, 2026 — Admin panel foundation: cog icon, overlay panel, nav structure
+  Version: 2.3
+  Updated: March 30, 2026 — Manufacturer Filter Management admin page with dual-column layout
   Supports: TD Synnex, Ingram Micro, ADI Global
 -->
 <!DOCTYPE html>
@@ -92,12 +92,126 @@
                 </nav>
                 <div class="admin-content">
                     <div class="admin-page active" id="adminPage-mfr-filters">
-                        <div class="admin-page-placeholder">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.3;">
+                        <!-- Distributor Tabs -->
+                        <div class="mfr-admin-tabs" id="mfrAdminTabs">
+                            <button class="mfr-admin-tab active" data-dist="tdsynnex" onclick="selectMfrAdminTab('tdsynnex')">
+                                <span class="mfr-admin-tab-dot" style="background: #10b981;"></span>TD Synnex
+                            </button>
+                            <button class="mfr-admin-tab" data-dist="ingram" onclick="selectMfrAdminTab('ingram')">
+                                <span class="mfr-admin-tab-dot" style="background: #0ea5e9;"></span>Ingram Micro
+                            </button>
+                            <button class="mfr-admin-tab" data-dist="adi" onclick="selectMfrAdminTab('adi')">
+                                <span class="mfr-admin-tab-dot" style="background: #8b5cf6;"></span>ADI Global
+                            </button>
+                        </div>
+
+                        <!-- Stats Row -->
+                        <div class="mfr-admin-stats" id="mfrAdminStats"></div>
+
+                        <!-- Loading State -->
+                        <div class="mfr-admin-loading" id="mfrAdminLoading" style="display: none;">
+                            <div class="mfr-admin-spinner"></div>
+                            <p>Loading manufacturer data...</p>
+                        </div>
+
+                        <!-- Empty State (no filter data yet) -->
+                        <div class="mfr-admin-empty" id="mfrAdminEmpty" style="display: none;">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                                 <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
                             </svg>
-                            <p>Manufacturer Filter Management</p>
-                            <span>Coming soon</span>
+                            <p>No filter data available yet</p>
+                            <span>Run the import workflow to populate manufacturer data for this distributor.</span>
+                        </div>
+
+                        <!-- Two-Column Layout -->
+                        <div class="mfr-admin-columns" id="mfrAdminColumns" style="display: none;">
+                            <!-- Available (Left) -->
+                            <div class="mfr-admin-col">
+                                <div class="mfr-admin-col-header">
+                                    <h3>Available</h3>
+                                    <span class="mfr-admin-col-count" id="mfrAvailCount">0</span>
+                                </div>
+                                <div class="mfr-admin-search">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                    </svg>
+                                    <input type="text" id="mfrAvailSearch" placeholder="Search available..." oninput="renderMfrColumns()">
+                                </div>
+                                <div class="mfr-admin-list" id="mfrAvailList"></div>
+                                <button class="mfr-admin-bulk-btn mfr-admin-bulk-add" id="mfrAddAllBtn" onclick="mfrAddAllVisible()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="13 17 18 12 13 7"></polyline>
+                                        <polyline points="6 17 11 12 6 7"></polyline>
+                                    </svg>
+                                    Add All Visible
+                                </button>
+                            </div>
+
+                            <!-- Included (Right) -->
+                            <div class="mfr-admin-col">
+                                <div class="mfr-admin-col-header mfr-admin-col-header--included">
+                                    <h3>Included</h3>
+                                    <span class="mfr-admin-col-count" id="mfrIncludedCount">0</span>
+                                </div>
+                                <div class="mfr-admin-search">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                    </svg>
+                                    <input type="text" id="mfrIncludedSearch" placeholder="Search included..." oninput="renderMfrColumns()">
+                                </div>
+                                <div class="mfr-admin-list" id="mfrIncludedList"></div>
+                                <button class="mfr-admin-bulk-btn mfr-admin-bulk-remove" id="mfrRemoveAllBtn" onclick="mfrRemoveAllVisible()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="11 17 6 12 11 7"></polyline>
+                                        <polyline points="18 17 13 12 18 7"></polyline>
+                                    </svg>
+                                    Remove All Visible
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Pending Changes Bar -->
+                        <div class="mfr-admin-pending-bar" id="mfrPendingBar" style="display: none;">
+                            <div class="mfr-admin-pending-info">
+                                <span class="mfr-admin-pending-dot"></span>
+                                <span id="mfrPendingSummary">0 changes</span>
+                            </div>
+                            <div class="mfr-admin-pending-actions">
+                                <button class="mfr-admin-btn-discard" onclick="mfrDiscardChanges()">Discard</button>
+                                <button class="mfr-admin-btn-save" onclick="mfrSaveChanges()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                        <polyline points="7 3 7 8 15 8"></polyline>
+                                    </svg>
+                                    Save Changes
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Save Success Modal -->
+                        <div class="mfr-admin-modal-overlay" id="mfrSaveModal" style="display: none;">
+                            <div class="mfr-admin-modal">
+                                <div class="mfr-admin-modal-icon">
+                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                                    </svg>
+                                </div>
+                                <h3>Filter changes saved</h3>
+                                <p>Would you like to apply these changes now by running the data import, or wait for the next scheduled update?</p>
+                                <div class="mfr-admin-modal-actions">
+                                    <button class="mfr-admin-btn-secondary" onclick="mfrDismissModal()">Wait for Scheduled Update</button>
+                                    <button class="mfr-admin-btn-primary" onclick="mfrApplyNow()">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                        </svg>
+                                        Apply Now
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

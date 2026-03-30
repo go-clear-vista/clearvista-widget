@@ -1,12 +1,12 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 2.2
- * Updated: March 30, 2026 — Admin panel foundation: triple-click cog, overlay panel, nav switching
+ * Version: 2.3
+ * Updated: March 30, 2026 — Manufacturer Filter Management admin page with LCP grouping
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
- *           scroll-to-focus panel transitions, product details loading UX
+ *           scroll-to-focus panel transitions, product details loading UX, admin panel
  */
 
 // =====================================================
@@ -94,6 +94,12 @@ const state = {
     adminClickTimes: [],
     adminPanelOpen: false,
     currentAdminPage: 'mfr-filters',
+    // Admin - Manufacturer Filters
+    adminFilterData: {},
+    adminActiveTab: 'tdsynnex',
+    adminPending: {},
+    adminFilterLoading: false,
+    adminExpandedGroups: new Set(),
 };
 
 let searchTimeout = null;
@@ -130,6 +136,10 @@ function openAdminPanel() {
     document.getElementById('adminPanel').style.display = 'flex';
     document.querySelector('.content-wrapper').style.display = 'none';
     state.adminPanelOpen = true;
+    // Auto-load filter data for current admin tab
+    if (state.currentAdminPage === 'mfr-filters') {
+        loadMfrFilterData(state.adminActiveTab);
+    }
 }
 
 function closeAdminPanel() {
@@ -150,6 +160,705 @@ function selectAdminPage(pageId) {
     });
 
     state.currentAdminPage = pageId;
+
+    // Auto-load data when navigating to mfr-filters page
+    if (pageId === 'mfr-filters') {
+        loadMfrFilterData(state.adminActiveTab);
+    }
+}
+
+// =====================================================
+// ADMIN — MANUFACTURER FILTER MANAGEMENT
+// =====================================================
+
+const GITHUB_PROXY_BASE = `${SUPABASE_URL}/functions/v1/github-proxy`;
+
+/**
+ * Select a distributor tab in the admin filter page
+ */
+function selectMfrAdminTab(dist) {
+    state.adminActiveTab = dist;
+    state.adminExpandedGroups.clear();
+    // Update tab UI
+    document.querySelectorAll('.mfr-admin-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.dist === dist);
+    });
+    // Clear search inputs
+    const availSearch = document.getElementById('mfrAvailSearch');
+    const inclSearch = document.getElementById('mfrIncludedSearch');
+    if (availSearch) availSearch.value = '';
+    if (inclSearch) inclSearch.value = '';
+    // Load fresh data (no caching)
+    loadMfrFilterData(dist);
+}
+
+/**
+ * Load manufacturer filter data from the github-proxy edge function
+ */
+async function loadMfrFilterData(dist) {
+    state.adminFilterLoading = true;
+    showMfrLoading(true);
+    showMfrColumns(false);
+    showMfrEmpty(false);
+
+    try {
+        const res = await fetch(`${GITHUB_PROXY_BASE}?action=get-filters&distributor=${dist}`);
+        if (res.status === 404 || !res.ok) {
+            // No filter data yet — show empty state
+            state.adminFilterData[dist] = null;
+            showMfrLoading(false);
+            showMfrEmpty(true);
+            renderMfrStats(dist, null);
+            updateMfrPendingBar();
+            return;
+        }
+        const data = await res.json();
+        if (data.error) {
+            state.adminFilterData[dist] = null;
+            showMfrLoading(false);
+            showMfrEmpty(true);
+            renderMfrStats(dist, null);
+            updateMfrPendingBar();
+            return;
+        }
+        state.adminFilterData[dist] = data;
+
+        // Initialize pending if not already
+        if (!state.adminPending[dist]) {
+            state.adminPending[dist] = { additions: new Set(), removals: new Set() };
+        }
+
+        showMfrLoading(false);
+        showMfrColumns(true);
+        renderMfrStats(dist, data);
+        renderMfrColumns();
+        updateMfrPendingBar();
+    } catch (err) {
+        console.error('Failed to load mfr filter data:', err);
+        state.adminFilterData[dist] = null;
+        showMfrLoading(false);
+        showMfrEmpty(true);
+        renderMfrStats(dist, null);
+    } finally {
+        state.adminFilterLoading = false;
+    }
+}
+
+function showMfrLoading(show) {
+    document.getElementById('mfrAdminLoading').style.display = show ? 'flex' : 'none';
+}
+function showMfrColumns(show) {
+    document.getElementById('mfrAdminColumns').style.display = show ? 'grid' : 'none';
+}
+function showMfrEmpty(show) {
+    document.getElementById('mfrAdminEmpty').style.display = show ? 'flex' : 'none';
+}
+
+/**
+ * Render stats row for a distributor
+ */
+function renderMfrStats(dist, data) {
+    const el = document.getElementById('mfrAdminStats');
+    if (!data) {
+        el.innerHTML = '';
+        return;
+    }
+    const s = data.stats || {};
+    const pending = state.adminPending[dist] || { additions: new Set(), removals: new Set() };
+    const activeCount = (data.active_manufacturers || []).length + pending.additions.size - pending.removals.size;
+
+    // Compute filtered SKUs dynamically
+    const activeSet = getEffectiveActiveSet(dist);
+    const details = data.manufacturer_details || {};
+    let filteredSkus = 0;
+    for (const name of activeSet) {
+        filteredSkus += (details[name]?.sku_count || 0);
+    }
+
+    el.innerHTML = `
+        <div class="mfr-admin-stat">
+            <span class="mfr-admin-stat-label">Known</span>
+            <span class="mfr-admin-stat-val">${fmtNum(s.total_manufacturers || (data.all_known_manufacturers || []).length)}</span>
+        </div>
+        <div class="mfr-admin-stat-separator"></div>
+        <div class="mfr-admin-stat">
+            <span class="mfr-admin-stat-label">Active</span>
+            <span class="mfr-admin-stat-val mfr-admin-stat-val--accent">${fmtNum(Math.max(0, activeCount))}</span>
+        </div>
+        <div class="mfr-admin-stat-separator"></div>
+        <div class="mfr-admin-stat">
+            <span class="mfr-admin-stat-label">Total SKUs</span>
+            <span class="mfr-admin-stat-val">${fmtNum(s.total_skus || s.total_skus_in_file || 0)}</span>
+        </div>
+        <div class="mfr-admin-stat-separator"></div>
+        <div class="mfr-admin-stat">
+            <span class="mfr-admin-stat-label">Filtered SKUs</span>
+            <span class="mfr-admin-stat-val">${fmtNum(filteredSkus)}</span>
+        </div>
+        <div class="mfr-admin-stat-separator"></div>
+        <div class="mfr-admin-stat">
+            <span class="mfr-admin-stat-label">Last Run</span>
+            <span class="mfr-admin-stat-val">${s.last_run ? fmtRelDate(s.last_run) : '--'}</span>
+        </div>
+    `;
+}
+
+/**
+ * Get the effective active set (original + pending additions - pending removals)
+ */
+function getEffectiveActiveSet(dist) {
+    const data = state.adminFilterData[dist];
+    if (!data) return new Set();
+    const active = new Set(data.active_manufacturers || []);
+    const pending = state.adminPending[dist] || { additions: new Set(), removals: new Set() };
+    for (const n of pending.additions) active.add(n);
+    for (const n of pending.removals) active.delete(n);
+    return active;
+}
+
+/**
+ * Format number with commas
+ */
+function fmtNum(n) {
+    return (n || 0).toLocaleString();
+}
+
+/**
+ * Format a date string as relative or absolute
+ */
+function fmtRelDate(dateStr) {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 14) return `${diffDays}d ago`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * LCP grouping for Ingram/ADI manufacturer names
+ * Groups manufacturers that share a 2+ word prefix
+ */
+function groupManufacturers(names, details) {
+    if (names.length === 0) return [];
+
+    const sorted = [...names].sort();
+    const groups = [];
+    let i = 0;
+
+    while (i < sorted.length) {
+        // Look ahead to find names sharing a common prefix
+        let bestPrefix = null;
+        let groupEnd = i;
+
+        for (let j = i + 1; j < sorted.length; j++) {
+            const prefix = sharedWordPrefix(sorted[i], sorted[j]);
+            if (prefix && prefix.split(/\s+/).length >= 2) {
+                // Check if all names from i to j share this prefix
+                let allShare = true;
+                for (let k = i; k <= j; k++) {
+                    if (!sorted[k].toUpperCase().startsWith(prefix.toUpperCase())) {
+                        allShare = false;
+                        break;
+                    }
+                }
+                if (allShare) {
+                    bestPrefix = prefix;
+                    groupEnd = j;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if (bestPrefix && groupEnd > i) {
+            // Multi-name group
+            const members = sorted.slice(i, groupEnd + 1);
+            let totalSkus = 0;
+            for (const m of members) totalSkus += (details[m]?.sku_count || 0);
+            groups.push({
+                type: 'group',
+                prefix: bestPrefix,
+                members: members,
+                totalSkus: totalSkus,
+            });
+            i = groupEnd + 1;
+        } else {
+            // Single item
+            groups.push({
+                type: 'single',
+                name: sorted[i],
+                skuCount: details[sorted[i]]?.sku_count || 0,
+            });
+            i++;
+        }
+    }
+
+    return groups;
+}
+
+/**
+ * Find shared word-level prefix between two strings
+ */
+function sharedWordPrefix(a, b) {
+    const wordsA = a.split(/\s+/);
+    const wordsB = b.split(/\s+/);
+    const common = [];
+    for (let i = 0; i < Math.min(wordsA.length, wordsB.length); i++) {
+        if (wordsA[i].toUpperCase() === wordsB[i].toUpperCase()) {
+            common.push(wordsA[i]);
+        } else {
+            break;
+        }
+    }
+    return common.length >= 2 ? common.join(' ') : null;
+}
+
+/**
+ * Check if a distributor uses grouped display (Ingram/ADI have unclean names)
+ */
+function isGroupedDistributor(dist) {
+    return dist === 'ingram' || dist === 'adi';
+}
+
+/**
+ * Render both Available and Included columns
+ */
+function renderMfrColumns() {
+    const dist = state.adminActiveTab;
+    const data = state.adminFilterData[dist];
+    if (!data) return;
+
+    const activeSet = getEffectiveActiveSet(dist);
+    const pending = state.adminPending[dist] || { additions: new Set(), removals: new Set() };
+    const details = data.manufacturer_details || {};
+    const allNames = data.all_known_manufacturers || [];
+
+    const availSearch = (document.getElementById('mfrAvailSearch')?.value || '').toUpperCase();
+    const inclSearch = (document.getElementById('mfrIncludedSearch')?.value || '').toUpperCase();
+
+    // Split into available and included
+    const availNames = allNames.filter(n => !activeSet.has(n));
+    const inclNames = allNames.filter(n => activeSet.has(n));
+
+    // Apply search filter
+    const filteredAvail = availSearch ? availNames.filter(n => n.toUpperCase().includes(availSearch)) : availNames;
+    const filteredIncl = inclSearch ? inclNames.filter(n => n.toUpperCase().includes(inclSearch)) : inclNames;
+
+    // Render columns
+    const availList = document.getElementById('mfrAvailList');
+    const inclList = document.getElementById('mfrIncludedList');
+
+    if (isGroupedDistributor(dist)) {
+        availList.innerHTML = renderGroupedList(filteredAvail, details, 'avail', pending);
+        inclList.innerHTML = renderGroupedList(filteredIncl, details, 'included', pending);
+    } else {
+        availList.innerHTML = renderFlatList(filteredAvail, details, 'avail', pending);
+        inclList.innerHTML = renderFlatList(filteredIncl, details, 'included', pending);
+    }
+
+    // Update counts
+    document.getElementById('mfrAvailCount').textContent = filteredAvail.length;
+    document.getElementById('mfrIncludedCount').textContent = filteredIncl.length;
+
+    // Update stats (filtered SKUs change with pending changes)
+    renderMfrStats(dist, data);
+    updateMfrPendingBar();
+}
+
+/**
+ * Render a flat list (for TD Synnex)
+ */
+function renderFlatList(names, details, side, pending) {
+    if (names.length === 0) {
+        return '<div class="mfr-admin-list-empty">No manufacturers found</div>';
+    }
+    const sorted = [...names].sort();
+    const arrowSvg = side === 'avail'
+        ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>'
+        : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+
+    return sorted.map(name => {
+        const sku = details[name]?.sku_count || 0;
+        const pendClass = pending.additions.has(name) ? ' mfr-admin-item--pending-add'
+                        : pending.removals.has(name) ? ' mfr-admin-item--pending-remove' : '';
+        const action = side === 'avail' ? `mfrIncludeName('${escAttr(name)}')` : `mfrExcludeName('${escAttr(name)}')`;
+        return `<div class="mfr-admin-item${pendClass}" onclick="${action}">
+            <span class="mfr-admin-item-name" title="${escAttr(name)}">${escHtml(name)}</span>
+            <span class="mfr-admin-item-sku">${fmtNum(sku)}</span>
+            <span class="mfr-admin-item-arrow">${arrowSvg}</span>
+        </div>`;
+    }).join('');
+}
+
+/**
+ * Render a grouped list (for Ingram/ADI)
+ */
+function renderGroupedList(names, details, side, pending) {
+    if (names.length === 0) {
+        return '<div class="mfr-admin-list-empty">No manufacturers found</div>';
+    }
+    const groups = groupManufacturers(names, details);
+    const arrowSvg = side === 'avail'
+        ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>'
+        : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+    const chevronSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+
+    return groups.map(g => {
+        if (g.type === 'single') {
+            const pendClass = pending.additions.has(g.name) ? ' mfr-admin-item--pending-add'
+                            : pending.removals.has(g.name) ? ' mfr-admin-item--pending-remove' : '';
+            const action = side === 'avail' ? `mfrIncludeName('${escAttr(g.name)}')` : `mfrExcludeName('${escAttr(g.name)}')`;
+            return `<div class="mfr-admin-item${pendClass}" onclick="${action}">
+                <span class="mfr-admin-item-name" title="${escAttr(g.name)}">${escHtml(g.name)}</span>
+                <span class="mfr-admin-item-sku">${fmtNum(g.skuCount)}</span>
+                <span class="mfr-admin-item-arrow">${arrowSvg}</span>
+            </div>`;
+        }
+
+        // Group
+        const groupId = `grp-${side}-${escAttr(g.prefix).replace(/\s+/g, '-')}`;
+        const isExpanded = state.adminExpandedGroups.has(groupId);
+
+        // Determine group pending state
+        const allPendingAdd = g.members.every(m => pending.additions.has(m));
+        const allPendingRemove = g.members.every(m => pending.removals.has(m));
+        const anyPending = g.members.some(m => pending.additions.has(m) || pending.removals.has(m));
+        let groupPendClass = '';
+        if (allPendingAdd) groupPendClass = ' mfr-admin-group--pending-add';
+        else if (allPendingRemove) groupPendClass = ' mfr-admin-group--pending-remove';
+        else if (anyPending) groupPendClass = ' mfr-admin-group--partial';
+
+        const groupAction = side === 'avail' ? `mfrIncludeGroup(event, ${JSON.stringify(g.members).replace(/"/g, '&quot;')})` : `mfrExcludeGroup(event, ${JSON.stringify(g.members).replace(/"/g, '&quot;')})`;
+
+        const children = g.members.map(name => {
+            const sku = details[name]?.sku_count || 0;
+            const pendClass = pending.additions.has(name) ? ' mfr-admin-item--pending-add'
+                            : pending.removals.has(name) ? ' mfr-admin-item--pending-remove' : '';
+            const action = side === 'avail' ? `mfrIncludeName('${escAttr(name)}')` : `mfrExcludeName('${escAttr(name)}')`;
+            // Show the suffix part after the prefix for readability
+            const suffix = name.substring(g.prefix.length).trim() || name;
+            return `<div class="mfr-admin-item${pendClass}" onclick="event.stopPropagation(); ${action}">
+                <span class="mfr-admin-item-name" title="${escAttr(name)}">${escHtml(suffix)}</span>
+                <span class="mfr-admin-item-sku">${fmtNum(sku)}</span>
+                <span class="mfr-admin-item-arrow">${arrowSvg}</span>
+            </div>`;
+        }).join('');
+
+        return `<div class="mfr-admin-group${groupPendClass}">
+            <div class="mfr-admin-group-header" onclick="${groupAction}">
+                <span class="mfr-admin-group-chevron${isExpanded ? ' expanded' : ''}" onclick="event.stopPropagation(); toggleMfrGroup('${groupId}')">
+                    ${chevronSvg}
+                </span>
+                <span class="mfr-admin-group-name" title="${escAttr(g.prefix)}">${escHtml(g.prefix)}</span>
+                <span class="mfr-admin-group-meta">
+                    <span class="mfr-admin-group-badge">${g.members.length} variants</span>
+                    <span class="mfr-admin-group-sku">${fmtNum(g.totalSkus)}</span>
+                </span>
+                <span class="mfr-admin-group-arrow">${arrowSvg}</span>
+            </div>
+            <div class="mfr-admin-group-children${isExpanded ? ' open' : ''}" id="${groupId}">
+                ${children}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+/**
+ * Toggle group expansion
+ */
+function toggleMfrGroup(groupId) {
+    const el = document.getElementById(groupId);
+    if (!el) return;
+    const chevron = el.previousElementSibling?.querySelector('.mfr-admin-group-chevron');
+    if (el.classList.contains('open')) {
+        el.classList.remove('open');
+        if (chevron) chevron.classList.remove('expanded');
+        state.adminExpandedGroups.delete(groupId);
+    } else {
+        el.classList.add('open');
+        if (chevron) chevron.classList.add('expanded');
+        state.adminExpandedGroups.add(groupId);
+    }
+}
+
+/**
+ * Include a single manufacturer name
+ */
+function mfrIncludeName(name) {
+    const dist = state.adminActiveTab;
+    ensurePending(dist);
+    const p = state.adminPending[dist];
+    const data = state.adminFilterData[dist];
+    const origActive = new Set(data?.active_manufacturers || []);
+
+    if (origActive.has(name)) {
+        // Was originally active — remove from removals
+        p.removals.delete(name);
+    } else {
+        // New addition
+        p.additions.add(name);
+    }
+    renderMfrColumns();
+}
+
+/**
+ * Exclude a single manufacturer name
+ */
+function mfrExcludeName(name) {
+    const dist = state.adminActiveTab;
+    ensurePending(dist);
+    const p = state.adminPending[dist];
+    const data = state.adminFilterData[dist];
+    const origActive = new Set(data?.active_manufacturers || []);
+
+    if (origActive.has(name)) {
+        // Was originally active — add to removals
+        p.removals.add(name);
+    } else {
+        // Was a pending addition — remove it
+        p.additions.delete(name);
+    }
+    renderMfrColumns();
+}
+
+/**
+ * Include all members of a group
+ */
+function mfrIncludeGroup(event, members) {
+    event.stopPropagation();
+    const dist = state.adminActiveTab;
+    ensurePending(dist);
+    const p = state.adminPending[dist];
+    const data = state.adminFilterData[dist];
+    const origActive = new Set(data?.active_manufacturers || []);
+
+    for (const name of members) {
+        if (origActive.has(name)) {
+            p.removals.delete(name);
+        } else {
+            p.additions.add(name);
+        }
+    }
+    renderMfrColumns();
+}
+
+/**
+ * Exclude all members of a group
+ */
+function mfrExcludeGroup(event, members) {
+    event.stopPropagation();
+    const dist = state.adminActiveTab;
+    ensurePending(dist);
+    const p = state.adminPending[dist];
+    const data = state.adminFilterData[dist];
+    const origActive = new Set(data?.active_manufacturers || []);
+
+    for (const name of members) {
+        if (origActive.has(name)) {
+            p.removals.add(name);
+        } else {
+            p.additions.delete(name);
+        }
+    }
+    renderMfrColumns();
+}
+
+/**
+ * Add all visible available manufacturers
+ */
+function mfrAddAllVisible() {
+    const dist = state.adminActiveTab;
+    const data = state.adminFilterData[dist];
+    if (!data) return;
+
+    ensurePending(dist);
+    const activeSet = getEffectiveActiveSet(dist);
+    const allNames = data.all_known_manufacturers || [];
+    const availNames = allNames.filter(n => !activeSet.has(n));
+    const search = (document.getElementById('mfrAvailSearch')?.value || '').toUpperCase();
+    const filtered = search ? availNames.filter(n => n.toUpperCase().includes(search)) : availNames;
+
+    const p = state.adminPending[dist];
+    const origActive = new Set(data.active_manufacturers || []);
+
+    for (const name of filtered) {
+        if (origActive.has(name)) {
+            p.removals.delete(name);
+        } else {
+            p.additions.add(name);
+        }
+    }
+    renderMfrColumns();
+}
+
+/**
+ * Remove all visible included manufacturers
+ */
+function mfrRemoveAllVisible() {
+    const dist = state.adminActiveTab;
+    const data = state.adminFilterData[dist];
+    if (!data) return;
+
+    ensurePending(dist);
+    const activeSet = getEffectiveActiveSet(dist);
+    const allNames = data.all_known_manufacturers || [];
+    const inclNames = allNames.filter(n => activeSet.has(n));
+    const search = (document.getElementById('mfrIncludedSearch')?.value || '').toUpperCase();
+    const filtered = search ? inclNames.filter(n => n.toUpperCase().includes(search)) : inclNames;
+
+    const p = state.adminPending[dist];
+    const origActive = new Set(data.active_manufacturers || []);
+
+    for (const name of filtered) {
+        if (origActive.has(name)) {
+            p.removals.add(name);
+        } else {
+            p.additions.delete(name);
+        }
+    }
+    renderMfrColumns();
+}
+
+/**
+ * Ensure pending state exists for distributor
+ */
+function ensurePending(dist) {
+    if (!state.adminPending[dist]) {
+        state.adminPending[dist] = { additions: new Set(), removals: new Set() };
+    }
+}
+
+/**
+ * Update the pending changes bar visibility and summary
+ */
+function updateMfrPendingBar() {
+    const dist = state.adminActiveTab;
+    const p = state.adminPending[dist];
+    const bar = document.getElementById('mfrPendingBar');
+    const summary = document.getElementById('mfrPendingSummary');
+
+    if (!p || (p.additions.size === 0 && p.removals.size === 0)) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.style.display = 'flex';
+    const parts = [];
+    if (p.additions.size > 0) parts.push(`${p.additions.size} addition${p.additions.size !== 1 ? 's' : ''}`);
+    if (p.removals.size > 0) parts.push(`${p.removals.size} removal${p.removals.size !== 1 ? 's' : ''}`);
+    summary.textContent = parts.join(', ');
+}
+
+/**
+ * Discard all pending changes for the current tab
+ */
+function mfrDiscardChanges() {
+    const dist = state.adminActiveTab;
+    state.adminPending[dist] = { additions: new Set(), removals: new Set() };
+    renderMfrColumns();
+}
+
+/**
+ * Save pending changes via the github-proxy edge function
+ */
+async function mfrSaveChanges() {
+    const dist = state.adminActiveTab;
+    const p = state.adminPending[dist];
+    if (!p || (p.additions.size === 0 && p.removals.size === 0)) return;
+
+    const saveBtn = document.querySelector('.mfr-admin-btn-save');
+    const origText = saveBtn.innerHTML;
+    saveBtn.innerHTML = '<div class="mfr-admin-spinner" style="width:14px;height:14px;border-width:2px;"></div> Saving...';
+    saveBtn.disabled = true;
+
+    try {
+        const res = await fetch(`${GITHUB_PROXY_BASE}?action=save-filters`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                distributor: dist,
+                additions: [...p.additions],
+                removals: [...p.removals],
+            }),
+        });
+        const result = await res.json();
+        if (result.error) {
+            console.error('Save failed:', result.error);
+            saveBtn.innerHTML = origText;
+            saveBtn.disabled = false;
+            return;
+        }
+
+        // Clear pending
+        state.adminPending[dist] = { additions: new Set(), removals: new Set() };
+        updateMfrPendingBar();
+
+        // Show success modal
+        document.getElementById('mfrSaveModal').style.display = 'flex';
+
+        saveBtn.innerHTML = origText;
+        saveBtn.disabled = false;
+    } catch (err) {
+        console.error('Save error:', err);
+        saveBtn.innerHTML = origText;
+        saveBtn.disabled = false;
+    }
+}
+
+/**
+ * Dismiss the save success modal
+ */
+function mfrDismissModal() {
+    document.getElementById('mfrSaveModal').style.display = 'none';
+    // Reload data to reflect saved state
+    loadMfrFilterData(state.adminActiveTab);
+}
+
+/**
+ * Apply Now — dispatch workflow for the current distributor
+ */
+async function mfrApplyNow() {
+    const dist = state.adminActiveTab;
+    document.getElementById('mfrSaveModal').style.display = 'none';
+
+    try {
+        const res = await fetch(`${GITHUB_PROXY_BASE}?action=dispatch-workflow`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ distributor: dist }),
+        });
+        const result = await res.json();
+        if (result.success) {
+            console.log('Workflow dispatched, run_id:', result.run_id);
+            // Phase 9.3 will add progress monitoring here
+        }
+    } catch (err) {
+        console.error('Dispatch error:', err);
+    }
+
+    // Reload data
+    loadMfrFilterData(state.adminActiveTab);
+}
+
+/**
+ * Escape HTML entities
+ */
+function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+/**
+ * Escape for use in HTML attributes (single-quote safe)
+ */
+function escAttr(str) {
+    return str.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // =====================================================
