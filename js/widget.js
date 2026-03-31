@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 2.9
- * Updated: March 30, 2026 — Add A-Z letter filter scope toggle (Available/Included/Both)
+ * Version: 3.0
+ * Updated: March 30, 2026 — Fix TD Synnex submit: use distributorPartNumber for TDSynnex_SKU
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -4424,7 +4424,7 @@ async function submitQueue() {
                 Product_Code: product.vendorPartNumber || '',
                 Product_Name: product.description || '',
                 Manufacturer: normalizedMfr,
-                TDSynnex_SKU: product.tdSynnexSkuNumber || '',
+                TDSynnex_SKU: product.distributorPartNumber || '',
                 Replacement_SKU: (product.replacementSku && product.replacementSku.trim() && !/^[\r\n]+$/.test(product.replacementSku)) ? product.replacementSku.trim() : 'None',
                 MSRP: msrp,
                 // Customer_Price MUST match what the queue displays as reseller price — no transformation
