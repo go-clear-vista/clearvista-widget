@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.2
- * Updated: March 30, 2026 — Admin UX fixes: remove Run Import btn, always-visible Save/Discard, letter filter ALL default, hide widget buttons in admin, Last Run date:time
+ * Version: 3.3
+ * Updated: March 30, 2026 — Running workflow toast, hide cog in admin, TD Synnex stats fix, larger buttons/dot
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -146,6 +146,7 @@ function openAdminPanel() {
     document.getElementById('adminPanel').style.display = 'flex';
     document.querySelector('.content-wrapper').style.display = 'none';
     document.querySelector('.header-buttons').style.display = 'none';
+    document.getElementById('adminCogBtn').style.display = 'none';
     state.adminPanelOpen = true;
     // Auto-load filter data for current admin tab
     if (state.currentAdminPage === 'mfr-filters') {
@@ -157,6 +158,7 @@ function closeAdminPanel() {
     document.getElementById('adminPanel').style.display = 'none';
     document.querySelector('.content-wrapper').style.display = '';
     document.querySelector('.header-buttons').style.display = '';
+    document.getElementById('adminCogBtn').style.display = '';
     state.adminPanelOpen = false;
 }
 
@@ -289,10 +291,18 @@ function renderMfrStats(dist, data) {
         filteredSkus += (details[name]?.sku_count || 0);
     }
 
+    // For distributors without total_skus in stats, compute from manufacturer_details
+    let totalSkus = s.total_skus || s.total_skus_in_file || 0;
+    if (!totalSkus && details) {
+        for (const name of Object.keys(details)) {
+            totalSkus += (details[name]?.sku_count || 0);
+        }
+    }
+
     el.innerHTML = `
         <div class="mfr-admin-stat">
             <span class="mfr-admin-stat-label">Known</span>
-            <span class="mfr-admin-stat-val">${fmtNum(s.total_manufacturers || (data.all_known_manufacturers || []).length)}</span>
+            <span class="mfr-admin-stat-val">${fmtNum(s.total_manufacturers || s.total_known || (data.all_known_manufacturers || []).length)}</span>
         </div>
         <div class="mfr-admin-stat-separator"></div>
         <div class="mfr-admin-stat">
@@ -302,7 +312,7 @@ function renderMfrStats(dist, data) {
         <div class="mfr-admin-stat-separator"></div>
         <div class="mfr-admin-stat">
             <span class="mfr-admin-stat-label">Total SKUs</span>
-            <span class="mfr-admin-stat-val">${fmtNum(s.total_skus || s.total_skus_in_file || 0)}</span>
+            <span class="mfr-admin-stat-val">${fmtNum(totalSkus)}</span>
         </div>
         <div class="mfr-admin-stat-separator"></div>
         <div class="mfr-admin-stat">
@@ -974,6 +984,7 @@ async function mfrApplyNow() {
         }
 
         startWorkflowPolling(dist);
+        showWorkflowRunningToast(dist);
     } catch (err) {
         console.error('Workflow dispatch error:', err);
         wf.running = false;
@@ -1031,9 +1042,19 @@ async function pollWorkflowStatus(dist) {
             wf.status = data.status;
             wf.conclusion = data.conclusion;
 
+            // Update running toast text
+            const runningToastEl = document.querySelector(`[data-workflow-dist="${dist}"] .workflow-toast-body span`);
+            if (runningToastEl) {
+                if (data.status === 'queued') runningToastEl.textContent = 'Import queued, waiting to start...';
+                else if (data.status === 'in_progress') runningToastEl.textContent = 'Import workflow running...';
+            }
+
             if (data.status === 'completed') {
                 wf.running = false;
                 stopWorkflowPolling(dist);
+                // Remove running toast
+                const runningToast = document.querySelector(`[data-workflow-dist="${dist}"]`);
+                if (runningToast) runningToast.remove();
                 const success = data.conclusion === 'success';
                 showWorkflowToast(dist, success, success ? 'Import completed successfully' : `Import ${data.conclusion || 'failed'}`);
                 // Store completion time for Last Run display
@@ -1087,6 +1108,30 @@ function showWorkflowToast(dist, success, message) {
             setTimeout(() => toast.remove(), 300);
         }
     }, 10000);
+}
+
+function showWorkflowRunningToast(dist) {
+    const container = document.getElementById('workflowToastContainer');
+    if (!container) return;
+
+    // Remove any existing running toast for this distributor
+    const existing = container.querySelector(`[data-workflow-dist="${dist}"]`);
+    if (existing) existing.remove();
+
+    const label = DIST_LABELS[dist] || dist;
+    const toast = document.createElement('div');
+    toast.className = 'workflow-toast workflow-toast--running';
+    toast.setAttribute('data-workflow-dist', dist);
+    toast.innerHTML = `
+        <div class="workflow-toast-icon workflow-toast-icon--running">
+            <div class="mfr-workflow-spinner-sm"></div>
+        </div>
+        <div class="workflow-toast-body">
+            <strong>${label}</strong>
+            <span>Import workflow running...</span>
+        </div>
+    `;
+    container.appendChild(toast);
 }
 
 /**

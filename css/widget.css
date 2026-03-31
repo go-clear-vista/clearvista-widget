@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 3.2
- * Updated: March 30, 2026 — Tighten letter bar, toast notifications, disabled button styles
+ * Version: 3.3
+ * Updated: March 30, 2026 — Larger Save/Discard buttons, larger pending dot, running toast styles
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -5975,8 +5975,8 @@ button.sel-btn .sel-btn-icon {
 }
 
 .admin-header-pending-dot {
-    width: 7px;
-    height: 7px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: var(--color-warning);
     animation: mfrPendingPulse 1.5s ease-in-out infinite;
@@ -5991,12 +5991,12 @@ button.sel-btn .sel-btn-icon {
 }
 
 .admin-header-btn-discard {
-    padding: 3px var(--space-2);
+    padding: 5px var(--space-3);
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: var(--radius-sm);
     font-family: var(--font-family);
-    font-size: var(--font-size-2xs);
+    font-size: var(--font-size-xs);
     font-weight: 600;
     color: rgba(255, 255, 255, 0.7);
     cursor: pointer;
@@ -6013,12 +6013,12 @@ button.sel-btn .sel-btn-icon {
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 3px var(--space-2);
+    padding: 5px var(--space-3);
     background: var(--color-accent);
-    border: none;
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     font-family: var(--font-family);
-    font-size: var(--font-size-2xs);
+    font-size: var(--font-size-xs);
     font-weight: 700;
     color: var(--color-text-inverse);
     cursor: pointer;
@@ -7085,6 +7085,15 @@ button.sel-btn .sel-btn-icon {
 .workflow-toast--failure .workflow-toast-icon {
     background: rgba(239, 68, 68, 0.15);
     color: #ef4444;
+}
+
+.workflow-toast--running {
+    background: var(--color-surface);
+    border-left: 4px solid var(--color-accent);
+}
+
+.workflow-toast--running .workflow-toast-icon {
+    background: transparent;
 }
 
 .workflow-toast-body {
