@@ -1,7 +1,7 @@
 <!--
   Distributor Product Lookup Widget — HTML
-  Version: 2.7
-  Updated: March 30, 2026 — Added workflow dispatch UI elements for Phase 9.3
+  Version: 2.8
+  Updated: March 30, 2026 — Remove workflow bar, always-visible header actions, toast container
   Supports: TD Synnex, Ingram Micro, ADI Global
 -->
 <!DOCTYPE html>
@@ -74,7 +74,7 @@
                     </svg>
                     <h1>Admin Settings</h1>
                 </div>
-                <div class="admin-header-actions" id="adminHeaderActions" style="display: none;">
+                <div class="admin-header-actions" id="adminHeaderActions">
                     <span class="admin-header-pending-dot"></span>
                     <span class="admin-header-pending-text" id="adminHeaderPendingText">0 changes</span>
                     <button class="admin-header-btn-discard" onclick="mfrDiscardChanges()">Discard</button>
@@ -121,21 +121,6 @@
                         <!-- Stats Row -->
                         <div class="mfr-admin-stats" id="mfrAdminStats"></div>
 
-                        <!-- Workflow Import Status Bar -->
-                        <div class="mfr-admin-workflow" id="mfrWorkflowBar" style="display: none;">
-                            <div class="mfr-workflow-left">
-                                <div class="mfr-workflow-indicator" id="mfrWorkflowIndicator">
-                                    <div class="mfr-workflow-spinner-sm"></div>
-                                    <span id="mfrWorkflowStatusText">Import running...</span>
-                                </div>
-                            </div>
-                            <div class="mfr-workflow-right">
-                                <button class="mfr-workflow-btn" id="mfrRunImportBtn" onclick="startWorkflowImport()">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                    Run Import
-                                </button>
-                            </div>
-                        </div>
 
                         <!-- Letter Filter Bar -->
                         <div class="mfr-admin-letter-bar" id="mfrLetterBar"></div>

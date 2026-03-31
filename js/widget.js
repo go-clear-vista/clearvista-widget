@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.1
- * Updated: March 30, 2026 — Added workflow dispatch, polling, and toast notifications for Phase 9.3
+ * Version: 3.2
+ * Updated: March 30, 2026 — Admin UX fixes: remove Run Import btn, always-visible Save/Discard, letter filter ALL default, hide widget buttons in admin, Last Run date:time
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -100,7 +100,7 @@ const state = {
     adminPending: {},
     adminFilterLoading: false,
     adminExpandedGroups: new Set(),
-    adminLetterFilter: 'A',
+    adminLetterFilter: 'All',
     adminLetterScope: 'available',
     // Admin - Workflow Import
     workflowState: {
@@ -109,6 +109,7 @@ const state = {
         adi: { running: false, runId: null, status: null, conclusion: null },
     },
     workflowPollingTimers: {},
+    workflowLastRun: {},
 };
 
 let searchTimeout = null;
@@ -144,17 +145,18 @@ function handleAdminCogClick() {
 function openAdminPanel() {
     document.getElementById('adminPanel').style.display = 'flex';
     document.querySelector('.content-wrapper').style.display = 'none';
+    document.querySelector('.header-buttons').style.display = 'none';
     state.adminPanelOpen = true;
     // Auto-load filter data for current admin tab
     if (state.currentAdminPage === 'mfr-filters') {
         loadMfrFilterData(state.adminActiveTab);
-        renderWorkflowBar(state.adminActiveTab);
     }
 }
 
 function closeAdminPanel() {
     document.getElementById('adminPanel').style.display = 'none';
     document.querySelector('.content-wrapper').style.display = '';
+    document.querySelector('.header-buttons').style.display = '';
     state.adminPanelOpen = false;
 }
 
@@ -189,7 +191,7 @@ const GITHUB_PROXY_BASE = `${SUPABASE_URL}/functions/v1/github-proxy`;
 function selectMfrAdminTab(dist) {
     state.adminActiveTab = dist;
     state.adminExpandedGroups.clear();
-    state.adminLetterFilter = 'A';
+    state.adminLetterFilter = 'All';
     // Update tab UI
     document.querySelectorAll('.mfr-admin-tab').forEach(t => {
         t.classList.toggle('active', t.dataset.dist === dist);
@@ -201,7 +203,6 @@ function selectMfrAdminTab(dist) {
     if (inclSearch) inclSearch.value = '';
     // Load fresh data (no caching)
     loadMfrFilterData(dist);
-    renderWorkflowBar(dist);
 }
 
 /**
@@ -341,13 +342,9 @@ function fmtNum(n) {
  */
 function fmtRelDate(dateStr) {
     const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now - d;
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 14) return `${diffDays}d ago`;
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    if (isNaN(d.getTime())) return '--';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
+           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 /**
@@ -832,15 +829,27 @@ function updateMfrPendingBar() {
     const p = state.adminPending[dist];
     const bar = document.getElementById('adminHeaderActions');
     const summary = document.getElementById('adminHeaderPendingText');
+    const dot = bar ? bar.querySelector('.admin-header-pending-dot') : null;
+    const discardBtn = bar ? bar.querySelector('.admin-header-btn-discard') : null;
+    const saveBtn = bar ? bar.querySelector('.admin-header-btn-save') : null;
 
     if (!bar) return;
 
-    if (!p || (p.additions.size === 0 && p.removals.size === 0)) {
-        bar.style.display = 'none';
+    bar.style.display = 'flex';
+
+    const hasChanges = p && (p.additions.size > 0 || p.removals.size > 0);
+
+    if (!hasChanges) {
+        if (discardBtn) discardBtn.disabled = true;
+        if (saveBtn) saveBtn.disabled = true;
+        if (dot) dot.style.display = 'none';
+        summary.textContent = 'No pending changes';
         return;
     }
 
-    bar.style.display = 'flex';
+    if (discardBtn) discardBtn.disabled = false;
+    if (saveBtn) saveBtn.disabled = false;
+    if (dot) dot.style.display = '';
     const parts = [];
     if (p.additions.size > 0) parts.push(`${p.additions.size} addition${p.additions.size !== 1 ? 's' : ''}`);
     if (p.removals.size > 0) parts.push(`${p.removals.size} removal${p.removals.size !== 1 ? 's' : ''}`);
@@ -926,21 +935,14 @@ function mfrDismissModal() {
 
 async function mfrApplyNow() {
     document.getElementById('mfrSaveModal').style.display = 'none';
-    startWorkflowImport();
-}
-
-// ── Workflow Dispatch & Monitoring (Phase 9.3) ──────────────────────────
-
-async function startWorkflowImport() {
     const dist = state.adminActiveTab;
     const wf = state.workflowState[dist];
-    if (wf.running) return; // Already running
+    if (wf.running) return;
 
     wf.running = true;
     wf.status = 'dispatching';
     wf.conclusion = null;
     wf.runId = null;
-    renderWorkflowBar(dist);
 
     try {
         const res = await fetch(`${GITHUB_PROXY_BASE}?action=dispatch-workflow`, {
@@ -953,7 +955,6 @@ async function startWorkflowImport() {
         if (!result.success) {
             wf.running = false;
             wf.status = 'error';
-            renderWorkflowBar(dist);
             showWorkflowToast(dist, false, result.error || 'Dispatch failed');
             return;
         }
@@ -962,28 +963,26 @@ async function startWorkflowImport() {
             wf.runId = result.run_id;
             wf.status = result.status || 'queued';
         } else {
-            // run_id null — use list-runs fallback after a short delay
             await new Promise(r => setTimeout(r, 3000));
             const foundId = await findLatestRunId(dist);
             if (foundId) {
                 wf.runId = foundId;
                 wf.status = 'queued';
             } else {
-                // Still no run found — show as dispatched, keep polling list-runs
                 wf.status = 'queued';
             }
         }
 
-        renderWorkflowBar(dist);
         startWorkflowPolling(dist);
     } catch (err) {
         console.error('Workflow dispatch error:', err);
         wf.running = false;
         wf.status = 'error';
-        renderWorkflowBar(dist);
         showWorkflowToast(dist, false, 'Network error dispatching workflow');
     }
 }
+
+// ── Workflow Dispatch & Monitoring (Phase 9.3) ──────────────────────────
 
 async function findLatestRunId(dist) {
     try {
@@ -1031,21 +1030,27 @@ async function pollWorkflowStatus(dist) {
 
             wf.status = data.status;
             wf.conclusion = data.conclusion;
-            renderWorkflowBar(dist);
 
             if (data.status === 'completed') {
                 wf.running = false;
                 stopWorkflowPolling(dist);
                 const success = data.conclusion === 'success';
                 showWorkflowToast(dist, success, success ? 'Import completed successfully' : `Import ${data.conclusion || 'failed'}`);
-                renderWorkflowBar(dist);
+                // Store completion time for Last Run display
+                state.workflowLastRun[dist] = new Date().toISOString();
+                // Re-render stats to update Last Run
+                const filterData = state.adminFilterData[dist];
+                if (filterData) {
+                    if (!filterData.stats) filterData.stats = {};
+                    filterData.stats.last_run = state.workflowLastRun[dist];
+                    renderMfrStats(dist, filterData);
+                }
             }
         } else {
             // Still no run_id — try list-runs fallback
             const foundId = await findLatestRunId(dist);
             if (foundId) {
                 wf.runId = foundId;
-                renderWorkflowBar(dist);
             }
         }
     } catch (err) {
@@ -1054,49 +1059,6 @@ async function pollWorkflowStatus(dist) {
 }
 
 const DIST_LABELS = { tdsynnex: 'TD Synnex', ingram: 'Ingram Micro', adi: 'ADI Global' };
-
-function renderWorkflowBar(dist) {
-    // Only update UI if this distributor tab is active
-    if (state.adminActiveTab !== dist) return;
-
-    const bar = document.getElementById('mfrWorkflowBar');
-    const btn = document.getElementById('mfrRunImportBtn');
-    const indicator = document.getElementById('mfrWorkflowIndicator');
-    const statusText = document.getElementById('mfrWorkflowStatusText');
-
-    if (!bar) return;
-    bar.style.display = 'flex';
-
-    const wf = state.workflowState[dist];
-
-    if (wf.running) {
-        btn.style.display = 'none';
-        indicator.style.display = 'flex';
-
-        if (wf.status === 'dispatching') {
-            statusText.textContent = 'Dispatching import...';
-        } else if (wf.status === 'queued') {
-            statusText.textContent = 'Import queued, waiting to start...';
-        } else if (wf.status === 'in_progress') {
-            statusText.textContent = 'Import running...';
-        } else {
-            statusText.textContent = `Import ${wf.status || 'processing'}...`;
-        }
-    } else {
-        indicator.style.display = 'none';
-        btn.style.display = 'inline-flex';
-
-        if (wf.status === 'completed' && wf.conclusion) {
-            if (wf.conclusion === 'success') {
-                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Import Complete — Run Again';
-            } else {
-                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Import Failed — Retry';
-            }
-        } else {
-            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Run Import';
-        }
-    }
-}
 
 function showWorkflowToast(dist, success, message) {
     const container = document.getElementById('workflowToastContainer');
