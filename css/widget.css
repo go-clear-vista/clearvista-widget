@@ -5975,8 +5975,8 @@ button.sel-btn .sel-btn-icon {
 }
 
 .admin-header-pending-dot {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: var(--color-warning);
     animation: mfrPendingPulse 1.5s ease-in-out infinite;
@@ -5984,8 +5984,8 @@ button.sel-btn .sel-btn-icon {
 }
 
 .admin-header-pending-text {
-    font-size: var(--font-size-2xs);
-    color: rgba(255, 255, 255, 0.6);
+    font-size: var(--font-size-xs);
+    color: rgba(255, 255, 255, 0.7);
     font-weight: 500;
     white-space: nowrap;
 }
