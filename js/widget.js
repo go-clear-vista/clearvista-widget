@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.0
- * Updated: March 30, 2026 — Fix TD Synnex submit: use distributorPartNumber for TDSynnex_SKU
+ * Version: 3.1
+ * Updated: March 30, 2026 — Added workflow dispatch, polling, and toast notifications for Phase 9.3
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -102,6 +102,13 @@ const state = {
     adminExpandedGroups: new Set(),
     adminLetterFilter: 'A',
     adminLetterScope: 'available',
+    // Admin - Workflow Import
+    workflowState: {
+        tdsynnex: { running: false, runId: null, status: null, conclusion: null },
+        ingram: { running: false, runId: null, status: null, conclusion: null },
+        adi: { running: false, runId: null, status: null, conclusion: null },
+    },
+    workflowPollingTimers: {},
 };
 
 let searchTimeout = null;
@@ -141,6 +148,7 @@ function openAdminPanel() {
     // Auto-load filter data for current admin tab
     if (state.currentAdminPage === 'mfr-filters') {
         loadMfrFilterData(state.adminActiveTab);
+        renderWorkflowBar(state.adminActiveTab);
     }
 }
 
@@ -193,6 +201,7 @@ function selectMfrAdminTab(dist) {
     if (inclSearch) inclSearch.value = '';
     // Load fresh data (no caching)
     loadMfrFilterData(dist);
+    renderWorkflowBar(dist);
 }
 
 /**
@@ -915,12 +924,23 @@ function mfrDismissModal() {
     renderMfrColumns();
 }
 
-/**
- * Apply Now — dispatch workflow for the current distributor
- */
 async function mfrApplyNow() {
-    const dist = state.adminActiveTab;
     document.getElementById('mfrSaveModal').style.display = 'none';
+    startWorkflowImport();
+}
+
+// ── Workflow Dispatch & Monitoring (Phase 9.3) ──────────────────────────
+
+async function startWorkflowImport() {
+    const dist = state.adminActiveTab;
+    const wf = state.workflowState[dist];
+    if (wf.running) return; // Already running
+
+    wf.running = true;
+    wf.status = 'dispatching';
+    wf.conclusion = null;
+    wf.runId = null;
+    renderWorkflowBar(dist);
 
     try {
         const res = await fetch(`${GITHUB_PROXY_BASE}?action=dispatch-workflow`, {
@@ -929,13 +949,182 @@ async function mfrApplyNow() {
             body: JSON.stringify({ distributor: dist }),
         });
         const result = await res.json();
-        if (result.success) {
-            console.log('Workflow dispatched, run_id:', result.run_id);
-            // Phase 9.3 will add progress monitoring here
+
+        if (!result.success) {
+            wf.running = false;
+            wf.status = 'error';
+            renderWorkflowBar(dist);
+            showWorkflowToast(dist, false, result.error || 'Dispatch failed');
+            return;
+        }
+
+        if (result.run_id) {
+            wf.runId = result.run_id;
+            wf.status = result.status || 'queued';
+        } else {
+            // run_id null — use list-runs fallback after a short delay
+            await new Promise(r => setTimeout(r, 3000));
+            const foundId = await findLatestRunId(dist);
+            if (foundId) {
+                wf.runId = foundId;
+                wf.status = 'queued';
+            } else {
+                // Still no run found — show as dispatched, keep polling list-runs
+                wf.status = 'queued';
+            }
+        }
+
+        renderWorkflowBar(dist);
+        startWorkflowPolling(dist);
+    } catch (err) {
+        console.error('Workflow dispatch error:', err);
+        wf.running = false;
+        wf.status = 'error';
+        renderWorkflowBar(dist);
+        showWorkflowToast(dist, false, 'Network error dispatching workflow');
+    }
+}
+
+async function findLatestRunId(dist) {
+    try {
+        const res = await fetch(`${GITHUB_PROXY_BASE}?action=list-runs&distributor=${dist}`);
+        const data = await res.json();
+        if (data.runs && data.runs.length > 0) {
+            const recent = data.runs[0];
+            // Only use if it was created very recently (within 30 seconds)
+            const createdAt = new Date(recent.created_at);
+            const now = new Date();
+            if (now - createdAt < 30000 && recent.status !== 'completed') {
+                return recent.run_id;
+            }
         }
     } catch (err) {
-        console.error('Dispatch error:', err);
+        console.error('list-runs fallback error:', err);
     }
+    return null;
+}
+
+function startWorkflowPolling(dist) {
+    stopWorkflowPolling(dist);
+    // Poll every 8 seconds
+    state.workflowPollingTimers[dist] = setInterval(() => pollWorkflowStatus(dist), 8000);
+}
+
+function stopWorkflowPolling(dist) {
+    if (state.workflowPollingTimers[dist]) {
+        clearInterval(state.workflowPollingTimers[dist]);
+        delete state.workflowPollingTimers[dist];
+    }
+}
+
+async function pollWorkflowStatus(dist) {
+    const wf = state.workflowState[dist];
+    if (!wf.running) {
+        stopWorkflowPolling(dist);
+        return;
+    }
+
+    try {
+        if (wf.runId) {
+            const res = await fetch(`${GITHUB_PROXY_BASE}?action=workflow-status&run_id=${wf.runId}`);
+            const data = await res.json();
+
+            wf.status = data.status;
+            wf.conclusion = data.conclusion;
+            renderWorkflowBar(dist);
+
+            if (data.status === 'completed') {
+                wf.running = false;
+                stopWorkflowPolling(dist);
+                const success = data.conclusion === 'success';
+                showWorkflowToast(dist, success, success ? 'Import completed successfully' : `Import ${data.conclusion || 'failed'}`);
+                renderWorkflowBar(dist);
+            }
+        } else {
+            // Still no run_id — try list-runs fallback
+            const foundId = await findLatestRunId(dist);
+            if (foundId) {
+                wf.runId = foundId;
+                renderWorkflowBar(dist);
+            }
+        }
+    } catch (err) {
+        console.error('Poll workflow status error:', err);
+    }
+}
+
+const DIST_LABELS = { tdsynnex: 'TD Synnex', ingram: 'Ingram Micro', adi: 'ADI Global' };
+
+function renderWorkflowBar(dist) {
+    // Only update UI if this distributor tab is active
+    if (state.adminActiveTab !== dist) return;
+
+    const bar = document.getElementById('mfrWorkflowBar');
+    const btn = document.getElementById('mfrRunImportBtn');
+    const indicator = document.getElementById('mfrWorkflowIndicator');
+    const statusText = document.getElementById('mfrWorkflowStatusText');
+
+    if (!bar) return;
+    bar.style.display = 'flex';
+
+    const wf = state.workflowState[dist];
+
+    if (wf.running) {
+        btn.style.display = 'none';
+        indicator.style.display = 'flex';
+
+        if (wf.status === 'dispatching') {
+            statusText.textContent = 'Dispatching import...';
+        } else if (wf.status === 'queued') {
+            statusText.textContent = 'Import queued, waiting to start...';
+        } else if (wf.status === 'in_progress') {
+            statusText.textContent = 'Import running...';
+        } else {
+            statusText.textContent = `Import ${wf.status || 'processing'}...`;
+        }
+    } else {
+        indicator.style.display = 'none';
+        btn.style.display = 'inline-flex';
+
+        if (wf.status === 'completed' && wf.conclusion) {
+            if (wf.conclusion === 'success') {
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Import Complete — Run Again';
+            } else {
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Import Failed — Retry';
+            }
+        } else {
+            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Run Import';
+        }
+    }
+}
+
+function showWorkflowToast(dist, success, message) {
+    const container = document.getElementById('workflowToastContainer');
+    if (!container) return;
+
+    const label = DIST_LABELS[dist] || dist;
+    const toast = document.createElement('div');
+    toast.className = `workflow-toast ${success ? 'workflow-toast--success' : 'workflow-toast--failure'}`;
+    toast.innerHTML = `
+        <div class="workflow-toast-icon">${success
+            ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+            : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
+        }</div>
+        <div class="workflow-toast-body">
+            <strong>${label}</strong>
+            <span>${escHtml(message)}</span>
+        </div>
+        <button class="workflow-toast-close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+    container.appendChild(toast);
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.add('workflow-toast--fading');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 10000);
 }
 
 /**
