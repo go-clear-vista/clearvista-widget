@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.5
- * Updated: March 31, 2026 — Fix TD Synnex manufacturer RPC field mapping (manufacturer_name)
+ * Version: 3.6
+ * Updated: March 31, 2026 — Replace native manufacturer select with custom searchable dropdown
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -113,6 +113,7 @@ const state = {
 };
 
 let searchTimeout = null;
+let currentMfrList = [];
 let draggedItem = null;
 let draggedGroup = null;
 let resizeStartY = 0;
@@ -1302,9 +1303,37 @@ function initZohoSDK() {
 // EVENT LISTENERS
 // =====================================================
 function initEventListeners() {
-    const mfrSearch = document.getElementById('manufacturerSearch');
-    if (mfrSearch) {
-        mfrSearch.addEventListener('input', debounceManufacturerSearch);
+    // Close manufacturer dropdown on outside click
+    document.addEventListener('click', function(e) {
+        const dropdown = document.getElementById('mfrDropdown');
+        if (dropdown && !dropdown.contains(e.target)) {
+            closeMfrDropdown(true);
+        }
+    });
+
+    // Manufacturer dropdown: search filtering and keyboard
+    const mfrDropdownSearch = document.getElementById('mfrDropdownSearch');
+    if (mfrDropdownSearch) {
+        mfrDropdownSearch.addEventListener('input', function() {
+            renderMfrDropdownOptions(this.value);
+        });
+        mfrDropdownSearch.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeMfrDropdown(true);
+                document.getElementById('mfrDropdownTrigger').focus();
+            }
+        });
+    }
+
+    // Manufacturer dropdown: option click via event delegation
+    const mfrDropdownList = document.getElementById('mfrDropdownList');
+    if (mfrDropdownList) {
+        mfrDropdownList.addEventListener('click', function(e) {
+            const option = e.target.closest('.mfr-dropdown-option');
+            if (option) {
+                selectMfrOption(option.dataset.value);
+            }
+        });
     }
 
     // SKU search field (single field for both SKU-first and filter modes)
@@ -1713,12 +1742,6 @@ function selectDistributor(distributor) {
     const cat3Field = document.getElementById('cat3FilterField');
     const skuTypeField = document.getElementById('skuTypeFilterField');
 
-    // Remove/add Ingram mode from manufacturer combo
-    const mfrComboEl = document.querySelector('.mfr-combo');
-    if (mfrComboEl) {
-        mfrComboEl.classList.remove('ingram-mode', 'adi-mode', 'tdsynnex-mode');
-    }
-
     if (distributor === 'tdsynnex') {
         // TD Synnex: Show cat3, hide SKU type
         // Restore subcategory filter (may have been hidden by ADI)
@@ -1726,8 +1749,6 @@ function selectDistributor(distributor) {
         if (subCatFieldRestore) subCatFieldRestore.closest('.filter-field').style.display = '';
         if (cat3Field) cat3Field.style.display = '';
         if (skuTypeField) skuTypeField.style.display = 'none';
-        // TD Synnex: pre-populate manufacturer dropdown, hide search input
-        if (mfrComboEl) mfrComboEl.classList.add('tdsynnex-mode');
         loadTDSynnexManufacturers();
     } else if (distributor === 'adi') {
         // ADI Global: Hide cat3, hide SKU type, hide subcategory
@@ -1736,8 +1757,6 @@ function selectDistributor(distributor) {
         // Hide subcategory filter for ADI
         const subCatField = document.getElementById('subcategorySelect');
         if (subCatField) subCatField.closest('.filter-field').style.display = 'none';
-        // ADI: pre-populate manufacturer dropdown, hide search input
-        if (mfrComboEl) mfrComboEl.classList.add('adi-mode');
         // Pre-populate manufacturer and category_1 dropdowns
         loadADIManufacturers();
     } else {
@@ -1747,8 +1766,6 @@ function selectDistributor(distributor) {
         if (subCatFieldRestore) subCatFieldRestore.closest('.filter-field').style.display = '';
         if (cat3Field) cat3Field.style.display = 'none';
         if (skuTypeField) skuTypeField.style.display = '';
-        // Ingram: pre-populate manufacturer dropdown, hide search input
-        if (mfrComboEl) mfrComboEl.classList.add('ingram-mode');
         // Ingram uses DB media_type codes — update label and reset to dynamic dropdown
         const skuTypeLabel = document.getElementById('skuTypeLabel');
         if (skuTypeLabel) {
@@ -1956,7 +1973,6 @@ async function searchTDSynnexManufacturers(searchTerm) {
 }
 
 async function loadIngramManufacturers() {
-    const select = document.getElementById('manufacturerSelect');
     const countEl = document.getElementById('mfrCount');
     try {
         const response = await fetch(
@@ -1973,20 +1989,25 @@ async function loadIngramManufacturers() {
         );
         if (!response.ok) throw new Error(`Failed: ${response.status}`);
         const data = await response.json();
-        const manufacturers = data.map(r => r.manufacturer).filter(Boolean).sort();
+        currentMfrList = data.map(r => r.manufacturer).filter(Boolean).sort();
 
-        select.innerHTML = '<option value="">-- Select Manufacturer --</option>' +
-            manufacturers.map(m => `<option value="${m}">${m}</option>`).join('');
-        if (countEl) countEl.textContent = `(${manufacturers.length})`;
-        select.disabled = false;
+        renderMfrDropdownOptions('');
+        if (countEl) countEl.textContent = `(${currentMfrList.length})`;
+
+        // Reset trigger to placeholder
+        const triggerText = document.getElementById('mfrDropdownText');
+        if (triggerText) {
+            triggerText.textContent = '-- Select Manufacturer --';
+            triggerText.classList.add('placeholder');
+        }
     } catch (error) {
         console.error('[Ingram] Failed to load manufacturers:', error);
-        select.innerHTML = '<option value="">Error loading manufacturers</option>';
+        currentMfrList = [];
+        renderMfrDropdownOptions('');
     }
 }
 
 async function loadADIManufacturers() {
-    const select = document.getElementById('manufacturerSelect');
     const countEl = document.getElementById('mfrCount');
     try {
         const response = await fetch(
@@ -2003,20 +2024,25 @@ async function loadADIManufacturers() {
         );
         if (!response.ok) throw new Error(`Failed: ${response.status}`);
         const data = await response.json();
-        const manufacturers = data.map(r => r.manufacturer).filter(Boolean).sort();
+        currentMfrList = data.map(r => r.manufacturer).filter(Boolean).sort();
 
-        select.innerHTML = '<option value="">-- Select Manufacturer --</option>' +
-            manufacturers.map(m => `<option value="${m}">${m}</option>`).join('');
-        if (countEl) countEl.textContent = `(${manufacturers.length})`;
-        select.disabled = false;
+        renderMfrDropdownOptions('');
+        if (countEl) countEl.textContent = `(${currentMfrList.length})`;
+
+        // Reset trigger to placeholder
+        const triggerText = document.getElementById('mfrDropdownText');
+        if (triggerText) {
+            triggerText.textContent = '-- Select Manufacturer --';
+            triggerText.classList.add('placeholder');
+        }
     } catch (error) {
         console.error('[ADI] Failed to load manufacturers:', error);
-        select.innerHTML = '<option value="">Error loading manufacturers</option>';
+        currentMfrList = [];
+        renderMfrDropdownOptions('');
     }
 }
 
 async function loadTDSynnexManufacturers() {
-    const select = document.getElementById('manufacturerSelect');
     const countEl = document.getElementById('mfrCount');
     try {
         const response = await fetch(
@@ -2033,16 +2059,101 @@ async function loadTDSynnexManufacturers() {
         );
         if (!response.ok) throw new Error(`Failed: ${response.status}`);
         const data = await response.json();
-        const manufacturers = data.map(r => r.manufacturer_name).filter(Boolean).sort();
+        currentMfrList = data.map(r => r.manufacturer_name).filter(Boolean).sort();
 
-        select.innerHTML = '<option value="">-- Select Manufacturer --</option>' +
-            manufacturers.map(m => `<option value="${m}">${m}</option>`).join('');
-        if (countEl) countEl.textContent = `(${manufacturers.length})`;
-        select.disabled = false;
+        renderMfrDropdownOptions('');
+        if (countEl) countEl.textContent = `(${currentMfrList.length})`;
+
+        // Reset trigger to placeholder
+        const triggerText = document.getElementById('mfrDropdownText');
+        if (triggerText) {
+            triggerText.textContent = '-- Select Manufacturer --';
+            triggerText.classList.add('placeholder');
+        }
     } catch (error) {
         console.error('[TD Synnex] Failed to load manufacturers:', error);
-        select.innerHTML = '<option value="">Error loading manufacturers</option>';
+        currentMfrList = [];
+        renderMfrDropdownOptions('');
     }
+}
+
+// =====================================================
+// CUSTOM MANUFACTURER DROPDOWN
+// =====================================================
+function toggleMfrDropdown() {
+    const dropdown = document.getElementById('mfrDropdown');
+    if (dropdown && dropdown.classList.contains('open')) {
+        closeMfrDropdown(true);
+    } else {
+        openMfrDropdown();
+    }
+}
+
+function openMfrDropdown() {
+    const dropdown = document.getElementById('mfrDropdown');
+    const panel = document.getElementById('mfrDropdownPanel');
+    const search = document.getElementById('mfrDropdownSearch');
+    if (!dropdown || !panel) return;
+
+    dropdown.classList.add('open');
+    panel.style.display = '';
+    renderMfrDropdownOptions('');
+
+    if (search) {
+        search.value = '';
+        setTimeout(() => search.focus(), 0);
+    }
+}
+
+function closeMfrDropdown(clearSearch) {
+    const dropdown = document.getElementById('mfrDropdown');
+    const panel = document.getElementById('mfrDropdownPanel');
+    const search = document.getElementById('mfrDropdownSearch');
+    if (!dropdown || !panel) return;
+
+    dropdown.classList.remove('open');
+    panel.style.display = 'none';
+
+    if (clearSearch && search) {
+        search.value = '';
+    }
+}
+
+function renderMfrDropdownOptions(filter) {
+    const list = document.getElementById('mfrDropdownList');
+    if (!list) return;
+
+    const filterLower = (filter || '').toLowerCase();
+    const filtered = filterLower
+        ? currentMfrList.filter(m => m.toLowerCase().includes(filterLower))
+        : currentMfrList;
+
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="mfr-dropdown-empty">' +
+            (currentMfrList.length === 0 ? 'No manufacturers loaded' : 'No matches found') +
+            '</div>';
+        return;
+    }
+
+    list.innerHTML = filtered.map(m => {
+        const isSelected = m === state.manufacturer;
+        const escaped = m.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        return '<div class="mfr-dropdown-option' + (isSelected ? ' selected' : '') + '" data-value="' + escaped + '" title="' + escaped + '">' + escaped + '</div>';
+    }).join('');
+}
+
+function selectMfrOption(value) {
+    state.manufacturer = value;
+
+    // Update trigger text
+    const triggerText = document.getElementById('mfrDropdownText');
+    if (triggerText) {
+        triggerText.textContent = value || '-- Select Manufacturer --';
+        triggerText.classList.toggle('placeholder', !value);
+    }
+
+    closeMfrDropdown(true);
+    onManufacturerSelect();
 }
 
 // Lazy API verification for Ingram manufacturers
@@ -2549,9 +2660,12 @@ async function handleSingleManufacturerAutoSelect(manufacturer, skuValue) {
     state.manufacturer = manufacturer;
     state.skuKeyword = skuValue;
 
-    // Update manufacturer dropdown to show selected value
-    const select = document.getElementById('manufacturerSelect');
-    select.innerHTML = `<option value="${manufacturer}" selected>${manufacturer}</option>`;
+    // Update custom dropdown trigger to show selected value
+    const triggerText = document.getElementById('mfrDropdownText');
+    if (triggerText) {
+        triggerText.textContent = manufacturer;
+        triggerText.classList.remove('placeholder');
+    }
 
     // Update manufacturer badge
     const mfrBadge = document.getElementById('selectedMfrBadge');
@@ -2600,19 +2714,16 @@ async function handleSingleManufacturerAutoSelect(manufacturer, skuValue) {
  * @param {Array} manufacturers - Array of {manufacturer_name, product_count} objects
  */
 function populateManufacturerDropdownFromSKU(manufacturers) {
-    const select = document.getElementById('manufacturerSelect');
+    // Store as current list and render in custom dropdown
+    currentMfrList = manufacturers;
+    renderMfrDropdownOptions('');
 
-    // Clear and populate with SKU-matched manufacturers
-    select.innerHTML = '<option value="">-- Select a manufacturer --</option>';
-
-    manufacturers.forEach(mfr => {
-        const name = mfr.manufacturer_name || mfr;
-        const count = mfr.product_count || 0;
-        const option = document.createElement('option');
-        option.value = name;
-        option.textContent = count > 0 ? `${name} (${count} matches)` : name;
-        select.appendChild(option);
-    });
+    // Reset trigger text
+    const triggerText = document.getElementById('mfrDropdownText');
+    if (triggerText) {
+        triggerText.textContent = '-- Select Manufacturer --';
+        triggerText.classList.add('placeholder');
+    }
 
     // Store options for reference
     state.skuManufacturerOptions = manufacturers;
@@ -2633,8 +2744,7 @@ function populateManufacturerDropdownFromSKU(manufacturers) {
 // MANUFACTURER SELECTION
 // =====================================================
 async function onManufacturerSelect() {
-    const select = document.getElementById('manufacturerSelect');
-    state.manufacturer = select.value;
+    // state.manufacturer is already set by selectMfrOption() or handleSingleManufacturerAutoSelect()
 
     // Hide OR divider when manufacturer is selected
     const orDivider = document.getElementById('orDivider');
@@ -5374,32 +5484,22 @@ function resetFilters() {
     state.pendingSkuFilter = '';
     state.skuManufacturerOptions = [];
 
-    document.getElementById('manufacturerSearch').value = '';
+    // Reset custom dropdown
+    closeMfrDropdown(true);
+    const triggerText = document.getElementById('mfrDropdownText');
+    if (triggerText) {
+        triggerText.textContent = '-- Select Manufacturer --';
+        triggerText.classList.add('placeholder');
+    }
     if (state.currentDistributor === 'ingram') {
-        // Ingram: re-populate the pre-loaded manufacturer dropdown
         loadIngramManufacturers();
     } else if (state.currentDistributor === 'tdsynnex') {
-        // TD Synnex: re-populate the pre-loaded manufacturer dropdown
         loadTDSynnexManufacturers();
-    } else {
-        document.getElementById('manufacturerSelect').innerHTML =
-            '<option value="">Type to search manufacturers...</option>';
+    } else if (state.currentDistributor === 'adi') {
+        loadADIManufacturers();
     }
     document.getElementById('mfrCount').textContent = '';
     document.getElementById('selectedMfrBadge').textContent = '';
-
-    // Re-apply distributor-specific mode class on manufacturer combo
-    const mfrComboEl = document.querySelector('.mfr-combo');
-    if (mfrComboEl) {
-        mfrComboEl.classList.remove('ingram-mode', 'adi-mode', 'tdsynnex-mode');
-        if (state.currentDistributor === 'ingram') {
-            mfrComboEl.classList.add('ingram-mode');
-        } else if (state.currentDistributor === 'adi') {
-            mfrComboEl.classList.add('adi-mode');
-        } else if (state.currentDistributor === 'tdsynnex') {
-            mfrComboEl.classList.add('tdsynnex-mode');
-        }
-    }
 
     // Clear SKU search input and reset placeholder
     const skuSearch = document.getElementById('skuSearch');

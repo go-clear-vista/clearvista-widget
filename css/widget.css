@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 3.4
- * Updated: March 31, 2026 — Add tdsynnex-mode for manufacturer dropdown
+ * Version: 3.5
+ * Updated: March 31, 2026 — Replace native manufacturer select with custom searchable dropdown
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -442,16 +442,6 @@ body {
     align-items: center;
     flex-wrap: wrap;
     min-width: 200px;
-}
-
-.mfr-combo input[type="text"] {
-    flex: 1;
-    min-width: 120px;
-}
-
-.mfr-combo select {
-    flex: 1;
-    min-width: 120px;
 }
 
 .mfr-count {
@@ -3380,18 +3370,135 @@ button svg {
     min-width: 0;
 }
 
-/* Arrow/Ingram/TDSynnex mode: hide search input, expand select dropdown */
-.mfr-combo.arrow-mode input[type="text"],
-.mfr-combo.ingram-mode input[type="text"],
-.mfr-combo.adi-mode input[type="text"],
-.mfr-combo.tdsynnex-mode input[type="text"] {
-    display: none;
+/* Custom searchable manufacturer dropdown */
+.mfr-dropdown {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
 }
-.mfr-combo.arrow-mode select,
-.mfr-combo.ingram-mode select,
-.mfr-combo.adi-mode select,
-.mfr-combo.tdsynnex-mode select {
-    flex: 2;
+
+.mfr-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 5px var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    background: var(--color-surface);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: left;
+}
+
+.mfr-dropdown-trigger:hover {
+    border-color: var(--color-text-muted);
+}
+
+.mfr-dropdown-trigger:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.12);
+}
+
+.mfr-dropdown-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mfr-dropdown-text.placeholder {
+    color: var(--color-text-muted);
+}
+
+.mfr-dropdown-arrow {
+    flex-shrink: 0;
+    margin-left: var(--space-1);
+    color: var(--color-text-muted);
+    transition: transform var(--transition-fast);
+}
+
+.mfr-dropdown.open .mfr-dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.mfr-dropdown-panel {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.mfr-dropdown-search-wrap {
+    padding: var(--space-1);
+    border-bottom: 1px solid var(--color-border-light);
+}
+
+.mfr-dropdown-search {
+    width: 100%;
+    padding: 5px var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: var(--font-size-xs);
+    color: var(--color-text);
+    background: var(--color-bg);
+    box-sizing: border-box;
+}
+
+.mfr-dropdown-search:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.12);
+}
+
+.mfr-dropdown-search::placeholder {
+    color: var(--color-text-muted);
+}
+
+.mfr-dropdown-list {
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 2px 0;
+}
+
+.mfr-dropdown-option {
+    padding: 6px var(--space-2);
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mfr-dropdown-option:hover {
+    background: var(--color-border-light);
+}
+
+.mfr-dropdown-option.selected {
+    background: rgba(14, 165, 233, 0.1);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+.mfr-dropdown-empty {
+    padding: 12px var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    text-align: center;
+    font-style: italic;
 }
 
 /* =====================================================
