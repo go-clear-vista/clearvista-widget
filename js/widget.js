@@ -1895,9 +1895,7 @@ function initZohoSDK() {
         return;
     }
 
-    ZOHO.embeddedApp.init();
-    console.log('ZOHO.embeddedApp.init() called');
-
+    // Register event handlers BEFORE init() — PageLoad fires during init and would be missed otherwise
     ZOHO.embeddedApp.on("PageLoad", function(data) {
         console.log('PageLoad event received:', data);
         state.parentContext = data;
@@ -1930,6 +1928,10 @@ function initZohoSDK() {
 
         showStatus('Ready to search. Select products and click "Add to Queue".', 'info');
     });
+
+    // Now call init() — PageLoad will fire and be caught by the handler above
+    ZOHO.embeddedApp.init();
+    console.log('ZOHO.embeddedApp.init() called');
 }
 
 // =====================================================
