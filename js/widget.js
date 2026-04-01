@@ -1643,7 +1643,10 @@ function renderResDropdownOptions(filter, selectedOverride) {
     const list = document.getElementById('resDropdownList');
     if (!list) return;
 
-    const options = state.adminCanonicalNames || state.prefetchedManufacturers || [];
+    // Both panels use Zoho Manufacturers list; admin falls back to Supabase canonical names
+    const options = state.prefetchedManufacturers.length > 0
+        ? state.prefetchedManufacturers
+        : (state.adminCanonicalNames || []);
     const filterLower = (filter || '').toLowerCase();
     const filtered = filterLower
         ? options.filter(m => m.toLowerCase().includes(filterLower))
