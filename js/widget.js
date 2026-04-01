@@ -5314,7 +5314,7 @@ async function submitQueue() {
     const uniqueManufacturers = new Map();
     for (const product of getActiveQueue()) {
         const mfr = product.vendorName || product.manufacturer;
-        const distributor = product._source === 'tdsynnex' ? 'tdsynnex' : 'ingram';
+        const distributor = product._source || 'ingram';
         if (mfr && !uniqueManufacturers.has(mfr)) {
             uniqueManufacturers.set(mfr, distributor);
         }
