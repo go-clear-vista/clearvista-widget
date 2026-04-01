@@ -1680,7 +1680,50 @@ function renderResDropdownOptions(filter, selectedOverride) {
 
 function selectResDropdownOption(value) {
     const { prefix, index } = resDropdownState;
+
+    // Toggle: clicking the already-selected value deselects it
+    const currentRes = prefix === 'admin'
+        ? state.adminResolutions.get(index)
+        : state.mfrResolutions.get(index);
+    const currentValue = currentRes && (currentRes.type === 'existing' || currentRes.type === 'zoho') ? currentRes.value : null;
+
     closeResDropdown();
+
+    if (value === currentValue) {
+        // Deselect — clear dropdown, re-enable input
+        clearResDropdownSelection(prefix, index);
+        const dd = document.getElementById(`${prefix === 'admin' ? 'admin-res' : 'mfr-res'}-dd-${index}`);
+        if (dd) dd.classList.remove('dd-disabled');
+
+        if (prefix === 'admin') {
+            const input = document.getElementById(`admin-res-input-${index}`);
+            const row = document.getElementById(`admin-res-row-${index}`);
+            const status = document.getElementById(`admin-res-status-${index}`);
+            if (input) input.disabled = false;
+            const existing = state.adminResolutions.get(index);
+            const oldCanonical = existing ? existing.oldCanonicalName : undefined;
+            // If editing a mapped row, keep resolution with oldCanonical but clear value
+            if (oldCanonical) {
+                state.adminResolutions.delete(index);
+                renderAdminResolutionTable();
+                return;
+            }
+            state.adminResolutions.delete(index);
+            if (row) row.classList.remove('row-valid');
+            if (status) status.classList.remove('show', 'valid');
+            updateAdminResolutionStatus();
+        } else {
+            const input = document.getElementById(`mfr-input-${index}`);
+            const row = document.getElementById(`mfr-row-${index}`);
+            const status = document.getElementById(`mfr-status-${index}`);
+            if (input) input.disabled = false;
+            state.mfrResolutions.delete(index);
+            if (row) row.classList.remove('row-valid');
+            if (status) status.classList.remove('show', 'valid');
+            updateMfrResolutionStatus();
+        }
+        return;
+    }
 
     if (prefix === 'admin') {
         // Update trigger text
