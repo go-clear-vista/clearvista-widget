@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.6
- * Updated: March 31, 2026 — Replace native manufacturer select with custom searchable dropdown
+ * Version: 3.7
+ * Updated: March 31, 2026 — Add Name Resolution admin page
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -102,6 +102,11 @@ const state = {
     adminExpandedGroups: new Set(),
     adminLetterFilter: 'All',
     adminLetterScope: 'available',
+    // Admin - Name Resolution
+    adminResolutionTab: 'tdsynnex',       // Current distributor tab in name resolution
+    adminResolutionData: [],              // Unmapped manufacturer names for current tab
+    adminResolutions: new Map(),          // User selections: index → {type: 'existing'|'new', value: string}
+    adminCanonicalNames: [],              // Sorted list of canonical names for dropdown
     // Admin - Workflow Import
     workflowState: {
         tdsynnex: { running: false, runId: null, status: null, conclusion: null },
@@ -149,9 +154,11 @@ function openAdminPanel() {
     document.querySelector('.header-buttons').style.display = 'none';
     document.getElementById('adminCogBtn').style.display = 'none';
     state.adminPanelOpen = true;
-    // Auto-load filter data for current admin tab
+    // Auto-load data for current admin page
     if (state.currentAdminPage === 'mfr-filters') {
         loadMfrFilterData(state.adminActiveTab);
+    } else if (state.currentAdminPage === 'name-resolution') {
+        loadAdminResolutionData(state.adminResolutionTab);
     }
 }
 
@@ -176,9 +183,17 @@ function selectAdminPage(pageId) {
 
     state.currentAdminPage = pageId;
 
-    // Auto-load data when navigating to mfr-filters page
+    // Show/hide header actions based on page (name-resolution has its own save)
+    const headerActions = document.getElementById('adminHeaderActions');
+    if (headerActions) {
+        headerActions.style.display = (pageId === 'name-resolution') ? 'none' : 'flex';
+    }
+
+    // Auto-load data when navigating to pages
     if (pageId === 'mfr-filters') {
         loadMfrFilterData(state.adminActiveTab);
+    } else if (pageId === 'name-resolution') {
+        loadAdminResolutionData(state.adminResolutionTab);
     }
 }
 
@@ -1214,6 +1229,281 @@ function selectMfrLetter(letter) {
     state.adminLetterFilter = letter;
     renderLetterBar();
     renderMfrColumns();
+}
+
+// =====================================================
+// ADMIN: NAME RESOLUTION
+// =====================================================
+function selectAdminResolutionTab(dist) {
+    state.adminResolutionTab = dist;
+    state.adminResolutions = new Map();
+    document.querySelectorAll('#adminResolutionTabs .mfr-admin-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.dist === dist);
+    });
+    loadAdminResolutionData(dist);
+}
+
+async function loadAdminResolutionData(dist) {
+    const loading = document.getElementById('adminResolutionLoading');
+    const empty = document.getElementById('adminResolutionEmpty');
+    const content = document.getElementById('adminResolutionContent');
+    const stats = document.getElementById('adminResolutionStats');
+
+    if (loading) loading.style.display = '';
+    if (empty) empty.style.display = 'none';
+    if (content) content.style.display = 'none';
+
+    try {
+        // Fetch all manufacturer names for this distributor
+        let rpcName, fieldName;
+        if (dist === 'tdsynnex') {
+            rpcName = 'get_tdsynnex_manufacturers';
+            fieldName = 'manufacturer_name';
+        } else if (dist === 'ingram') {
+            rpcName = 'get_ingram_manufacturers';
+            fieldName = 'manufacturer';
+        } else {
+            rpcName = 'get_adi_manufacturers';
+            fieldName = 'manufacturer';
+        }
+
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${rpcName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            },
+            body: JSON.stringify(dist === 'ingram' ? { p_search: null } : {})
+        });
+
+        if (!response.ok) throw new Error(`RPC failed: ${response.status}`);
+        const data = await response.json();
+        const allNames = data.map(r => r[fieldName]).filter(Boolean).sort();
+
+        // Reload mappings to ensure fresh data
+        await loadManufacturerMappings();
+
+        // Determine which alias field to check
+        let aliasField;
+        if (dist === 'tdsynnex') aliasField = 'td_synnex_aliases';
+        else if (dist === 'ingram') aliasField = 'ingram_micro_aliases';
+        else aliasField = 'adi_global_aliases';
+
+        // Build set of all mapped names for this distributor
+        const mappedNames = new Set();
+        (state.manufacturerMappingsData || []).forEach(mapping => {
+            const aliases = mapping[aliasField] || [];
+            aliases.forEach(alias => mappedNames.add(alias.toUpperCase()));
+        });
+
+        // Find unmapped names
+        const unmapped = allNames.filter(name => !mappedNames.has(name.toUpperCase()));
+
+        // Build canonical names list for dropdown
+        const canonicalSet = new Set();
+        (state.manufacturerMappingsData || []).forEach(mapping => {
+            if (mapping.canonical_name) canonicalSet.add(mapping.canonical_name);
+        });
+        state.adminCanonicalNames = [...canonicalSet].sort();
+
+        state.adminResolutionData = unmapped;
+        state.adminResolutions = new Map();
+
+        // Render stats
+        if (stats) {
+            stats.innerHTML = `
+                <div class="mfr-admin-stat">
+                    <span class="mfr-admin-stat-label">Total</span>
+                    <span class="mfr-admin-stat-val">${allNames.length}</span>
+                </div>
+                <div class="mfr-admin-stat-separator"></div>
+                <div class="mfr-admin-stat">
+                    <span class="mfr-admin-stat-label">Mapped</span>
+                    <span class="mfr-admin-stat-val mfr-admin-stat-val--accent">${allNames.length - unmapped.length}</span>
+                </div>
+                <div class="mfr-admin-stat-separator"></div>
+                <div class="mfr-admin-stat">
+                    <span class="mfr-admin-stat-label">Unmapped</span>
+                    <span class="mfr-admin-stat-val" style="${unmapped.length > 0 ? 'color: var(--color-warning);' : ''}">${unmapped.length}</span>
+                </div>
+            `;
+        }
+
+        if (loading) loading.style.display = 'none';
+
+        if (unmapped.length === 0) {
+            if (empty) empty.style.display = '';
+            if (content) content.style.display = 'none';
+        } else {
+            if (empty) empty.style.display = 'none';
+            if (content) content.style.display = '';
+            renderAdminResolutionTable();
+        }
+    } catch (error) {
+        console.error('[AdminResolution] Error loading data:', error);
+        if (loading) loading.style.display = 'none';
+        if (stats) stats.innerHTML = '<span style="color: var(--color-error); font-size: var(--font-size-xs);">Error loading manufacturer data</span>';
+    }
+}
+
+function renderAdminResolutionTable() {
+    const tbody = document.getElementById('adminResolutionTableBody');
+    if (!tbody) return;
+
+    const canonicalOptions = state.adminCanonicalNames
+        .map(n => {
+            const escaped = n.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return `<option value="${escaped}">${escaped}</option>`;
+        })
+        .join('');
+
+    let html = '';
+    state.adminResolutionData.forEach((name, index) => {
+        const resolution = state.adminResolutions.get(index);
+        const isResolved = !!resolution;
+        const rowClass = isResolved ? ' row-valid' : '';
+        const selectDisabled = resolution && resolution.type === 'new' ? ' disabled' : '';
+        const inputDisabled = resolution && resolution.type === 'existing' ? ' disabled' : '';
+        const selectValue = resolution && resolution.type === 'existing' ? resolution.value : '';
+        const inputValue = resolution && resolution.type === 'new' ? resolution.value : '';
+
+        const escaped = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        html += `<tr class="mfr-row${rowClass}" id="admin-res-row-${index}">
+            <td class="col-source">
+                <span class="mfr-name-cell">${escaped}</span>
+            </td>
+            <td>
+                <div class="mfr-select-wrapper">
+                    <select class="mfr-select" id="admin-res-select-${index}" data-index="${index}" onchange="handleAdminResSelect(${index})"${selectDisabled}>
+                        <option value="">-- Select --</option>
+                        ${canonicalOptions}
+                    </select>
+                    <span class="mfr-select-arrow">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <path d="M6 9l6 6 6-6"/>
+                        </svg>
+                    </span>
+                </div>
+            </td>
+            <td class="td-or"></td>
+            <td>
+                <div class="mfr-input-wrapper">
+                    <input type="text" class="mfr-input" id="admin-res-input-${index}" data-index="${index}" placeholder="Enter new name..." oninput="handleAdminResInput(${index})" value="${inputValue}"${inputDisabled}>
+                    <span id="admin-res-status-${index}" class="mfr-row-status${isResolved ? ' show valid' : ''}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <path d="M5 12l5 5L20 7"/>
+                        </svg>
+                    </span>
+                </div>
+            </td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+
+    // Set select values after rendering (since HTML option matching needs DOM)
+    state.adminResolutions.forEach((resolution, index) => {
+        if (resolution.type === 'existing') {
+            const select = document.getElementById(`admin-res-select-${index}`);
+            if (select) select.value = resolution.value;
+        }
+    });
+
+    updateAdminResolutionStatus();
+}
+
+function handleAdminResSelect(index) {
+    const select = document.getElementById(`admin-res-select-${index}`);
+    const input = document.getElementById(`admin-res-input-${index}`);
+    const row = document.getElementById(`admin-res-row-${index}`);
+    const status = document.getElementById(`admin-res-status-${index}`);
+
+    if (select.value) {
+        if (input) { input.value = ''; input.disabled = true; }
+        state.adminResolutions.set(index, { type: 'existing', value: select.value });
+        if (row) row.classList.add('row-valid');
+        if (status) status.classList.add('show', 'valid');
+    } else {
+        if (input) input.disabled = false;
+        state.adminResolutions.delete(index);
+        if (row) row.classList.remove('row-valid');
+        if (status) status.classList.remove('show', 'valid');
+    }
+    updateAdminResolutionStatus();
+}
+
+function handleAdminResInput(index) {
+    const input = document.getElementById(`admin-res-input-${index}`);
+    const select = document.getElementById(`admin-res-select-${index}`);
+    const row = document.getElementById(`admin-res-row-${index}`);
+    const status = document.getElementById(`admin-res-status-${index}`);
+
+    if (input.value.trim()) {
+        if (select) { select.value = ''; select.disabled = true; }
+        state.adminResolutions.set(index, { type: 'new', value: input.value.trim() });
+        if (row) row.classList.add('row-valid');
+        if (status) status.classList.add('show', 'valid');
+    } else {
+        if (select) select.disabled = false;
+        state.adminResolutions.delete(index);
+        if (row) row.classList.remove('row-valid');
+        if (status) status.classList.remove('show', 'valid');
+    }
+    updateAdminResolutionStatus();
+}
+
+function updateAdminResolutionStatus() {
+    const total = state.adminResolutionData.length;
+    const resolved = state.adminResolutions.size;
+    const dot = document.getElementById('adminResolutionDot');
+    const text = document.getElementById('adminResolutionStatusText');
+    const btn = document.getElementById('adminResolutionSaveBtn');
+
+    if (dot) {
+        dot.classList.toggle('complete', resolved > 0);
+        dot.classList.toggle('incomplete', resolved === 0);
+    }
+    if (text) text.textContent = `${resolved} of ${total} resolved`;
+    if (btn) btn.disabled = resolved === 0;
+}
+
+async function saveAdminResolutions() {
+    const btn = document.getElementById('adminResolutionSaveBtn');
+    if (!btn || btn.disabled) return;
+
+    const origHTML = btn.innerHTML;
+    btn.innerHTML = '<div class="mfr-admin-spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;"></div> Saving...';
+    btn.disabled = true;
+
+    try {
+        const dist = state.adminResolutionTab;
+        const mappings = [];
+
+        for (const [index, resolution] of state.adminResolutions) {
+            const distributorName = state.adminResolutionData[index];
+            mappings.push({
+                distributor_name: distributorName,
+                canonical_name: resolution.value,
+                distributor: dist
+            });
+        }
+
+        const result = await saveManufacturerMappingsBatch(mappings);
+
+        if (result.success || result.saved_count >= 0) {
+            console.log(`[AdminResolution] Saved ${result.saved_count} mappings`);
+            // Reload to refresh the unmapped list
+            await loadAdminResolutionData(dist);
+        } else {
+            throw new Error('Save failed');
+        }
+    } catch (error) {
+        console.error('[AdminResolution] Save error:', error);
+        btn.innerHTML = origHTML;
+        btn.disabled = false;
+    }
 }
 
 // =====================================================

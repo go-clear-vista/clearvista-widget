@@ -1,7 +1,7 @@
 <!--
   Distributor Product Lookup Widget — HTML
-  Version: 2.9
-  Updated: March 31, 2026 — Replace native manufacturer select with custom searchable dropdown
+  Version: 3.0
+  Updated: March 31, 2026 — Add Name Resolution admin page
   Supports: TD Synnex, Ingram Micro, ADI Global
 -->
 <!DOCTYPE html>
@@ -102,6 +102,12 @@
                         </svg>
                         Manufacturer Filters
                     </button>
+                    <button class="admin-nav-item" data-admin-page="name-resolution" onclick="selectAdminPage('name-resolution')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        Name Resolution
+                    </button>
                 </nav>
                 <div class="admin-content">
                     <div class="admin-page active" id="adminPage-mfr-filters">
@@ -198,6 +204,65 @@
                                         Apply Now
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="admin-page" id="adminPage-name-resolution">
+                        <div class="admin-resolution-tabs" id="adminResolutionTabs">
+                            <button class="mfr-admin-tab active" data-dist="tdsynnex" onclick="selectAdminResolutionTab('tdsynnex')">
+                                <span class="mfr-admin-tab-dot" style="background: #10b981;"></span>TD Synnex
+                            </button>
+                            <button class="mfr-admin-tab" data-dist="ingram" onclick="selectAdminResolutionTab('ingram')">
+                                <span class="mfr-admin-tab-dot" style="background: #0ea5e9;"></span>Ingram Micro
+                            </button>
+                            <button class="mfr-admin-tab" data-dist="adi" onclick="selectAdminResolutionTab('adi')">
+                                <span class="mfr-admin-tab-dot" style="background: #8b5cf6;"></span>ADI Global
+                            </button>
+                        </div>
+
+                        <div class="admin-resolution-stats" id="adminResolutionStats"></div>
+
+                        <div class="admin-resolution-loading" id="adminResolutionLoading" style="display: none;">
+                            <div class="mfr-admin-spinner"></div>
+                            <p>Loading manufacturer data...</p>
+                        </div>
+
+                        <div class="admin-resolution-empty" id="adminResolutionEmpty" style="display: none;">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                            </svg>
+                            <p>All manufacturers are mapped!</p>
+                            <span>No unmapped manufacturer names found for this distributor.</span>
+                        </div>
+
+                        <div class="admin-resolution-content" id="adminResolutionContent" style="display: none;">
+                            <div class="admin-resolution-table-container">
+                                <table class="mfr-resolution-table admin-resolution-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="th-mfr-names">Distributor Name</th>
+                                            <th class="th-zoho">Select Canonical Name</th>
+                                            <th class="th-or"><span class="th-or-text">OR</span></th>
+                                            <th class="th-create">Create New</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="adminResolutionTableBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="admin-resolution-footer">
+                                <div class="admin-resolution-footer-status">
+                                    <span class="mfr-status-dot incomplete" id="adminResolutionDot"></span>
+                                    <span id="adminResolutionStatusText">0 of 0 resolved</span>
+                                </div>
+                                <button class="mfr-btn mfr-btn-primary" id="adminResolutionSaveBtn" onclick="saveAdminResolutions()" disabled>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                        <polyline points="7 3 7 8 15 8"></polyline>
+                                    </svg>
+                                    Save Mappings
+                                </button>
                             </div>
                         </div>
                     </div>
