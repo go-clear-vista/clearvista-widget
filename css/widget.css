@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 3.12
- * Updated: April 1, 2026 — Edit button and row-editing styles for mapped name resolution rows
+ * Version: 3.13
+ * Updated: April 1, 2026 — Custom searchable dropdown styles for resolution panels
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -7588,4 +7588,62 @@ button.sel-btn .sel-btn-icon {
 
 .mfr-row.row-editing {
     background: rgba(14, 165, 233, 0.04);
+}
+
+/* Resolution custom dropdown (reuses .mfr-dropdown-* styles for panel/options) */
+.res-dropdown {
+    position: relative;
+    min-width: 180px;
+}
+
+.res-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 10px;
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-bg-secondary);
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font-family);
+}
+
+.res-dropdown-trigger:hover {
+    border-color: var(--color-text-muted);
+}
+
+.res-dropdown-trigger:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.12);
+}
+
+.res-dropdown.open .mfr-dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.res-dropdown-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.res-dropdown-text.placeholder {
+    color: var(--color-text-muted);
+}
+
+.res-dropdown.dd-disabled .res-dropdown-trigger {
+    opacity: 0.5;
+    pointer-events: none;
+    background: var(--color-bg-primary);
+}
+
+/* Floating panel (appended to body, positioned fixed) */
+.res-dropdown-floating {
+    position: fixed;
+    z-index: 10000;
 }
