@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 3.8
- * Updated: March 31, 2026 — Rewrite sidebar collapse, fix sticky table header
+ * Version: 3.11
+ * Updated: April 1, 2026 — Instant CSS tooltips replacing native title delays on admin sidebar
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -6144,17 +6144,18 @@ button.sel-btn .sel-btn-icon {
     overflow: hidden;
 }
 
+/* Dark sidebar navigation — Zoho-inspired */
 .admin-nav {
     width: 220px;
     min-width: 220px;
-    background: var(--color-surface);
-    border-right: 1px solid var(--color-border);
+    background: var(--color-primary);
+    border-right: none;
     padding: var(--space-2);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
     transition: width 0.2s ease, min-width 0.2s ease;
-    overflow: hidden;
+    overflow: visible;
     flex-shrink: 0;
 }
 
@@ -6163,73 +6164,146 @@ button.sel-btn .sel-btn-icon {
     min-width: 52px;
 }
 
-/* Nav items */
-.admin-nav-item {
+/* Toggle button — always at top, right-aligned in expanded */
+.admin-nav-toggle {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-2);
+    justify-content: center;
+    align-self: flex-end;
+    width: 32px;
+    height: 32px;
     background: transparent;
     border: none;
-    border-radius: var(--radius-md);
-    color: var(--color-text-secondary);
+    border-radius: var(--radius-sm);
+    color: var(--color-accent);
+    cursor: pointer;
+    transition: background 0.06s ease, color 0.06s ease;
+    flex-shrink: 0;
+    padding: 0;
+    margin-bottom: var(--space-2);
+    margin-right: var(--space-1);
+}
+
+.admin-nav.collapsed .admin-nav-toggle {
+    align-self: center;
+    margin-right: 0;
+}
+
+.admin-nav-toggle:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+/* Nav items — grid for icon+text alignment */
+.admin-nav-item {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    color: rgba(255, 255, 255, 0.7);
     font-family: var(--font-family);
     font-size: var(--font-size-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast);
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
     text-align: left;
     width: 100%;
     white-space: nowrap;
-    overflow: hidden;
 }
 
 .admin-nav-item:hover {
-    background: var(--color-border-light);
-    color: var(--color-text);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.95);
 }
 
 .admin-nav-item.active {
-    background: rgba(14, 165, 233, 0.1);
-    color: var(--color-accent-dark);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
     font-weight: 600;
+    border-left-color: var(--color-accent);
 }
 
 .admin-nav-item svg {
     flex-shrink: 0;
     width: 16px;
     height: 16px;
+    justify-self: center;
+    color: var(--color-accent);
 }
 
-/* Collapse toggle button */
-.admin-nav-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 32px;
-    background: transparent;
-    border: none;
+.admin-nav-item.active svg {
+    color: #fff;
+}
+
+/* Label spans — hidden when collapsed */
+.admin-nav-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.admin-nav.collapsed .admin-nav-label {
+    display: none;
+}
+
+/* Collapsed: center icons, single column */
+.admin-nav.collapsed .admin-nav-item {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: var(--space-2);
+    border-left: none;
+}
+
+.admin-nav.collapsed .admin-nav-item.active {
+    border-left: none;
     border-radius: var(--radius-sm);
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    flex-shrink: 0;
-    margin-top: auto;
-    padding: 0;
 }
 
-.admin-nav-toggle:hover {
-    background: var(--color-border-light);
-    color: var(--color-text);
+.admin-nav.collapsed .admin-nav-item,
+.admin-nav.collapsed .admin-nav-toggle {
+    transition: background 0.06s ease, color 0.06s ease;
 }
 
-.admin-nav-toggle svg {
-    transition: transform 0.2s ease;
+/* CSS tooltips — instant, no native title delay */
+.admin-nav [data-tooltip] {
+    position: relative;
 }
 
-.admin-nav.collapsed .admin-nav-toggle svg {
-    transform: rotate(180deg);
+.admin-nav [data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 8px;
+    padding: 4px 10px;
+    background: var(--color-text);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+    opacity: 0;
+    z-index: 1000;
+}
+
+/* Toggle tooltip: always visible on hover */
+.admin-nav-toggle[data-tooltip]:hover::after {
+    opacity: 1;
+}
+
+/* Nav item tooltips: only in collapsed mode */
+.admin-nav:not(.collapsed) .admin-nav-item[data-tooltip]::after {
+    display: none;
+}
+
+.admin-nav.collapsed .admin-nav-item[data-tooltip]:hover::after {
+    opacity: 1;
 }
 
 .admin-content {
