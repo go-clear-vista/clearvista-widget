@@ -1901,8 +1901,11 @@ function initZohoSDK() {
         state.parentContext = data;
 
         // Store pre-fetched manufacturers from Client Script (Phase 3)
-        if (data && data.manufacturers && Array.isArray(data.manufacturers)) {
-            state.prefetchedManufacturers = data.manufacturers.map(m => {
+        // PageLoad receives the full openPopup second arg: {data: {...}, wait: true}
+        // Manufacturers are at data.data.manufacturers, same pattern as NotifyAndWait
+        const pageData = data.data || data;
+        if (pageData && pageData.manufacturers && Array.isArray(pageData.manufacturers)) {
+            state.prefetchedManufacturers = pageData.manufacturers.map(m => {
                 // Handle both {id, name} objects and plain strings
                 return typeof m === 'string' ? m : (m.name || m.Name || '');
             }).filter(name => name.length > 0).sort();
