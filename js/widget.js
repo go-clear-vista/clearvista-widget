@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.4
- * Updated: March 31, 2026 — Add TD Synnex manufacturer pick list prepopulation
+ * Version: 3.5
+ * Updated: March 31, 2026 — Fix TD Synnex manufacturer RPC field mapping (manufacturer_name)
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -2033,7 +2033,7 @@ async function loadTDSynnexManufacturers() {
         );
         if (!response.ok) throw new Error(`Failed: ${response.status}`);
         const data = await response.json();
-        const manufacturers = data.map(r => r.manufacturer).filter(Boolean).sort();
+        const manufacturers = data.map(r => r.manufacturer_name).filter(Boolean).sort();
 
         select.innerHTML = '<option value="">-- Select Manufacturer --</option>' +
             manufacturers.map(m => `<option value="${m}">${m}</option>`).join('');
