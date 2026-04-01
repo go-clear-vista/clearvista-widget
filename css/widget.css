@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 3.3
- * Updated: March 30, 2026 — Larger Save/Discard buttons, larger pending dot, running toast styles
+ * Version: 3.4
+ * Updated: March 31, 2026 — Add tdsynnex-mode for manufacturer dropdown
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -3380,15 +3380,17 @@ button svg {
     min-width: 0;
 }
 
-/* Arrow/Ingram mode: hide search input, expand select dropdown */
+/* Arrow/Ingram/TDSynnex mode: hide search input, expand select dropdown */
 .mfr-combo.arrow-mode input[type="text"],
 .mfr-combo.ingram-mode input[type="text"],
-.mfr-combo.adi-mode input[type="text"] {
+.mfr-combo.adi-mode input[type="text"],
+.mfr-combo.tdsynnex-mode input[type="text"] {
     display: none;
 }
 .mfr-combo.arrow-mode select,
 .mfr-combo.ingram-mode select,
-.mfr-combo.adi-mode select {
+.mfr-combo.adi-mode select,
+.mfr-combo.tdsynnex-mode select {
     flex: 2;
 }
 

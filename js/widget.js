@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.3
- * Updated: March 30, 2026 — Running workflow toast, hide cog in admin, TD Synnex stats fix, larger buttons/dot
+ * Version: 3.4
+ * Updated: March 31, 2026 — Add TD Synnex manufacturer pick list prepopulation
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -1716,7 +1716,7 @@ function selectDistributor(distributor) {
     // Remove/add Ingram mode from manufacturer combo
     const mfrComboEl = document.querySelector('.mfr-combo');
     if (mfrComboEl) {
-        mfrComboEl.classList.remove('ingram-mode', 'adi-mode');
+        mfrComboEl.classList.remove('ingram-mode', 'adi-mode', 'tdsynnex-mode');
     }
 
     if (distributor === 'tdsynnex') {
@@ -1726,6 +1726,9 @@ function selectDistributor(distributor) {
         if (subCatFieldRestore) subCatFieldRestore.closest('.filter-field').style.display = '';
         if (cat3Field) cat3Field.style.display = '';
         if (skuTypeField) skuTypeField.style.display = 'none';
+        // TD Synnex: pre-populate manufacturer dropdown, hide search input
+        if (mfrComboEl) mfrComboEl.classList.add('tdsynnex-mode');
+        loadTDSynnexManufacturers();
     } else if (distributor === 'adi') {
         // ADI Global: Hide cat3, hide SKU type, hide subcategory
         if (cat3Field) cat3Field.style.display = 'none';
@@ -2008,6 +2011,36 @@ async function loadADIManufacturers() {
         select.disabled = false;
     } catch (error) {
         console.error('[ADI] Failed to load manufacturers:', error);
+        select.innerHTML = '<option value="">Error loading manufacturers</option>';
+    }
+}
+
+async function loadTDSynnexManufacturers() {
+    const select = document.getElementById('manufacturerSelect');
+    const countEl = document.getElementById('mfrCount');
+    try {
+        const response = await fetch(
+            `${SUPABASE_URL}/rest/v1/rpc/get_tdsynnex_manufacturers`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({})
+            }
+        );
+        if (!response.ok) throw new Error(`Failed: ${response.status}`);
+        const data = await response.json();
+        const manufacturers = data.map(r => r.manufacturer).filter(Boolean).sort();
+
+        select.innerHTML = '<option value="">-- Select Manufacturer --</option>' +
+            manufacturers.map(m => `<option value="${m}">${m}</option>`).join('');
+        if (countEl) countEl.textContent = `(${manufacturers.length})`;
+        select.disabled = false;
+    } catch (error) {
+        console.error('[TD Synnex] Failed to load manufacturers:', error);
         select.innerHTML = '<option value="">Error loading manufacturers</option>';
     }
 }
@@ -5345,6 +5378,9 @@ function resetFilters() {
     if (state.currentDistributor === 'ingram') {
         // Ingram: re-populate the pre-loaded manufacturer dropdown
         loadIngramManufacturers();
+    } else if (state.currentDistributor === 'tdsynnex') {
+        // TD Synnex: re-populate the pre-loaded manufacturer dropdown
+        loadTDSynnexManufacturers();
     } else {
         document.getElementById('manufacturerSelect').innerHTML =
             '<option value="">Type to search manufacturers...</option>';
@@ -5355,11 +5391,13 @@ function resetFilters() {
     // Re-apply distributor-specific mode class on manufacturer combo
     const mfrComboEl = document.querySelector('.mfr-combo');
     if (mfrComboEl) {
-        mfrComboEl.classList.remove('ingram-mode', 'adi-mode');
+        mfrComboEl.classList.remove('ingram-mode', 'adi-mode', 'tdsynnex-mode');
         if (state.currentDistributor === 'ingram') {
             mfrComboEl.classList.add('ingram-mode');
         } else if (state.currentDistributor === 'adi') {
             mfrComboEl.classList.add('adi-mode');
+        } else if (state.currentDistributor === 'tdsynnex') {
+            mfrComboEl.classList.add('tdsynnex-mode');
         }
     }
 
