@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 3.6
- * Updated: March 31, 2026 — Add Name Resolution admin page styles
+ * Version: 3.7
+ * Updated: March 31, 2026 — Sidebar collapse, resolution filter bar, mapped row styles
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -6153,6 +6153,34 @@ button.sel-btn .sel-btn-icon {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+    transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+    overflow: hidden;
+    position: relative;
+    z-index: 10;
+}
+
+.admin-nav.collapsed {
+    width: 48px;
+    min-width: 48px;
+    padding: var(--space-2);
+}
+
+.admin-nav.collapsed:hover {
+    width: 220px;
+    min-width: 220px;
+    padding: var(--space-3);
+    box-shadow: var(--shadow-lg);
+}
+
+.admin-nav.collapsed .admin-nav-item span {
+    opacity: 0;
+    width: 0;
+    overflow: hidden;
+}
+
+.admin-nav.collapsed:hover .admin-nav-item span {
+    opacity: 1;
+    width: auto;
 }
 
 .admin-nav-item {
@@ -6171,6 +6199,7 @@ button.sel-btn .sel-btn-icon {
     transition: all var(--transition-fast);
     text-align: left;
     width: 100%;
+    white-space: nowrap;
 }
 
 .admin-nav-item:hover {
@@ -6186,6 +6215,32 @@ button.sel-btn .sel-btn-icon {
 
 .admin-nav-item svg {
     flex-shrink: 0;
+}
+
+.admin-nav-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: var(--space-1);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    margin-bottom: var(--space-2);
+    flex-shrink: 0;
+}
+
+.admin-nav-toggle:hover {
+    background: var(--color-border-light);
+    color: var(--color-text);
+}
+
+.admin-nav.collapsed .admin-nav-toggle {
+    border: none;
+    padding: var(--space-1) 0;
 }
 
 .admin-content {
@@ -7350,4 +7405,54 @@ button.sel-btn .sel-btn-icon {
     gap: var(--space-2);
     font-size: var(--font-size-sm);
     color: var(--color-text-secondary);
+}
+
+.admin-resolution-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0 var(--space-4) var(--space-2);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+
+.admin-resolution-filter-label {
+    font-size: var(--font-size-2xs);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-right: var(--space-1);
+}
+
+.admin-resolution-filter-btn {
+    padding: 2px var(--space-2);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family);
+    font-size: var(--font-size-2xs);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.admin-resolution-filter-btn:hover {
+    background: var(--color-border-light);
+    color: var(--color-text);
+}
+
+.admin-resolution-filter-btn.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-text-inverse);
+}
+
+.admin-res-mapped-value {
+    font-size: var(--font-size-sm);
+    color: var(--color-accent-dark);
+    font-weight: 600;
+    padding: 6px 8px;
 }

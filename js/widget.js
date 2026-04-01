@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.7
- * Updated: March 31, 2026 — Add Name Resolution admin page
+ * Version: 3.8
+ * Updated: March 31, 2026 — Resolution filter (Mapped/Unmapped/All), sidebar collapse, header text fix
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -104,7 +104,9 @@ const state = {
     adminLetterScope: 'available',
     // Admin - Name Resolution
     adminResolutionTab: 'tdsynnex',       // Current distributor tab in name resolution
-    adminResolutionData: [],              // Unmapped manufacturer names for current tab
+    adminResolutionAllData: [],           // All manufacturer entries: [{name, mapped, canonicalName}]
+    adminResolutionData: [],              // Filtered view based on current filter
+    adminResolutionFilter: 'unmapped',    // Filter: 'unmapped', 'mapped', 'all'
     adminResolutions: new Map(),          // User selections: index → {type: 'existing'|'new', value: string}
     adminCanonicalNames: [],              // Sorted list of canonical names for dropdown
     // Admin - Workflow Import
@@ -1290,15 +1292,18 @@ async function loadAdminResolutionData(dist) {
         else if (dist === 'ingram') aliasField = 'ingram_micro_aliases';
         else aliasField = 'adi_global_aliases';
 
-        // Build set of all mapped names for this distributor
-        const mappedNames = new Set();
+        // Build map of distributor name (uppercase) → canonical name
+        const mappedLookup = new Map();
         (state.manufacturerMappingsData || []).forEach(mapping => {
             const aliases = mapping[aliasField] || [];
-            aliases.forEach(alias => mappedNames.add(alias.toUpperCase()));
+            aliases.forEach(alias => mappedLookup.set(alias.toUpperCase(), mapping.canonical_name));
         });
 
-        // Find unmapped names
-        const unmapped = allNames.filter(name => !mappedNames.has(name.toUpperCase()));
+        // Build full data array with mapped status
+        state.adminResolutionAllData = allNames.map(name => {
+            const canonical = mappedLookup.get(name.toUpperCase());
+            return { name, mapped: !!canonical, canonicalName: canonical || '' };
+        });
 
         // Build canonical names list for dropdown
         const canonicalSet = new Set();
@@ -1307,8 +1312,11 @@ async function loadAdminResolutionData(dist) {
         });
         state.adminCanonicalNames = [...canonicalSet].sort();
 
-        state.adminResolutionData = unmapped;
         state.adminResolutions = new Map();
+
+        // Count stats
+        const mappedCount = state.adminResolutionAllData.filter(d => d.mapped).length;
+        const unmappedCount = state.adminResolutionAllData.filter(d => !d.mapped).length;
 
         // Render stats
         if (stats) {
@@ -1320,30 +1328,82 @@ async function loadAdminResolutionData(dist) {
                 <div class="mfr-admin-stat-separator"></div>
                 <div class="mfr-admin-stat">
                     <span class="mfr-admin-stat-label">Mapped</span>
-                    <span class="mfr-admin-stat-val mfr-admin-stat-val--accent">${allNames.length - unmapped.length}</span>
+                    <span class="mfr-admin-stat-val mfr-admin-stat-val--accent">${mappedCount}</span>
                 </div>
                 <div class="mfr-admin-stat-separator"></div>
                 <div class="mfr-admin-stat">
                     <span class="mfr-admin-stat-label">Unmapped</span>
-                    <span class="mfr-admin-stat-val" style="${unmapped.length > 0 ? 'color: var(--color-warning);' : ''}">${unmapped.length}</span>
+                    <span class="mfr-admin-stat-val" style="${unmappedCount > 0 ? 'color: var(--color-warning);' : ''}">${unmappedCount}</span>
                 </div>
             `;
         }
 
         if (loading) loading.style.display = 'none';
 
-        if (unmapped.length === 0) {
-            if (empty) empty.style.display = '';
-            if (content) content.style.display = 'none';
-        } else {
-            if (empty) empty.style.display = 'none';
-            if (content) content.style.display = '';
-            renderAdminResolutionTable();
-        }
+        // Apply filter and render
+        applyAdminResolutionFilter();
     } catch (error) {
         console.error('[AdminResolution] Error loading data:', error);
         if (loading) loading.style.display = 'none';
         if (stats) stats.innerHTML = '<span style="color: var(--color-error); font-size: var(--font-size-xs);">Error loading manufacturer data</span>';
+    }
+}
+
+function setAdminResolutionFilter(filter) {
+    state.adminResolutionFilter = filter;
+    state.adminResolutions = new Map();
+    // Update filter button active states
+    document.querySelectorAll('.admin-resolution-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+    applyAdminResolutionFilter();
+}
+
+function applyAdminResolutionFilter() {
+    const empty = document.getElementById('adminResolutionEmpty');
+    const content = document.getElementById('adminResolutionContent');
+    const filter = state.adminResolutionFilter;
+
+    let filtered;
+    if (filter === 'mapped') {
+        filtered = state.adminResolutionAllData.filter(d => d.mapped);
+    } else if (filter === 'unmapped') {
+        filtered = state.adminResolutionAllData.filter(d => !d.mapped);
+    } else {
+        filtered = [...state.adminResolutionAllData];
+    }
+
+    state.adminResolutionData = filtered;
+
+    if (filtered.length === 0) {
+        if (empty) {
+            empty.style.display = '';
+            // Update empty message based on filter
+            const p = empty.querySelector('p');
+            const span = empty.querySelector('span');
+            if (filter === 'unmapped') {
+                if (p) p.textContent = 'All manufacturers are mapped!';
+                if (span) span.textContent = 'No unmapped manufacturer names found for this distributor.';
+            } else if (filter === 'mapped') {
+                if (p) p.textContent = 'No mapped manufacturers yet';
+                if (span) span.textContent = 'No manufacturer names have been mapped for this distributor.';
+            } else {
+                if (p) p.textContent = 'No manufacturers found';
+                if (span) span.textContent = 'No manufacturer data available for this distributor.';
+            }
+        }
+        if (content) content.style.display = 'none';
+    } else {
+        if (empty) empty.style.display = 'none';
+        if (content) content.style.display = '';
+        renderAdminResolutionTable();
+    }
+}
+
+function toggleAdminNav() {
+    const nav = document.getElementById('adminNav');
+    if (nav) {
+        nav.classList.toggle('collapsed');
     }
 }
 
@@ -1359,51 +1419,72 @@ function renderAdminResolutionTable() {
         .join('');
 
     let html = '';
-    state.adminResolutionData.forEach((name, index) => {
-        const resolution = state.adminResolutions.get(index);
-        const isResolved = !!resolution;
-        const rowClass = isResolved ? ' row-valid' : '';
-        const selectDisabled = resolution && resolution.type === 'new' ? ' disabled' : '';
-        const inputDisabled = resolution && resolution.type === 'existing' ? ' disabled' : '';
-        const selectValue = resolution && resolution.type === 'existing' ? resolution.value : '';
-        const inputValue = resolution && resolution.type === 'new' ? resolution.value : '';
+    state.adminResolutionData.forEach((entry, index) => {
+        const escaped = entry.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-        const escaped = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-        html += `<tr class="mfr-row${rowClass}" id="admin-res-row-${index}">
-            <td class="col-source">
-                <span class="mfr-name-cell">${escaped}</span>
-            </td>
-            <td>
-                <div class="mfr-select-wrapper">
-                    <select class="mfr-select" id="admin-res-select-${index}" data-index="${index}" onchange="handleAdminResSelect(${index})"${selectDisabled}>
-                        <option value="">-- Select --</option>
-                        ${canonicalOptions}
-                    </select>
-                    <span class="mfr-select-arrow">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                            <path d="M6 9l6 6 6-6"/>
-                        </svg>
-                    </span>
-                </div>
-            </td>
-            <td class="td-or"></td>
-            <td>
-                <div class="mfr-input-wrapper">
-                    <input type="text" class="mfr-input" id="admin-res-input-${index}" data-index="${index}" placeholder="Enter new name..." oninput="handleAdminResInput(${index})" value="${inputValue}"${inputDisabled}>
-                    <span id="admin-res-status-${index}" class="mfr-row-status${isResolved ? ' show valid' : ''}">
+        if (entry.mapped) {
+            // Mapped row — show current canonical name as read-only
+            const canonEscaped = entry.canonicalName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            html += `<tr class="mfr-row row-valid" id="admin-res-row-${index}">
+                <td class="col-source">
+                    <span class="mfr-name-cell">${escaped}</span>
+                </td>
+                <td>
+                    <span class="admin-res-mapped-value">${canonEscaped}</span>
+                </td>
+                <td class="td-or"></td>
+                <td>
+                    <span class="mfr-row-status show valid">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                             <path d="M5 12l5 5L20 7"/>
                         </svg>
                     </span>
-                </div>
-            </td>
-        </tr>`;
+                </td>
+            </tr>`;
+        } else {
+            // Unmapped row — editable dropdown + create new
+            const resolution = state.adminResolutions.get(index);
+            const isResolved = !!resolution;
+            const rowClass = isResolved ? ' row-valid' : '';
+            const selectDisabled = resolution && resolution.type === 'new' ? ' disabled' : '';
+            const inputDisabled = resolution && resolution.type === 'existing' ? ' disabled' : '';
+            const inputValue = resolution && resolution.type === 'new' ? resolution.value : '';
+
+            html += `<tr class="mfr-row${rowClass}" id="admin-res-row-${index}">
+                <td class="col-source">
+                    <span class="mfr-name-cell">${escaped}</span>
+                </td>
+                <td>
+                    <div class="mfr-select-wrapper">
+                        <select class="mfr-select" id="admin-res-select-${index}" data-index="${index}" onchange="handleAdminResSelect(${index})"${selectDisabled}>
+                            <option value="">-- Select --</option>
+                            ${canonicalOptions}
+                        </select>
+                        <span class="mfr-select-arrow">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <path d="M6 9l6 6 6-6"/>
+                            </svg>
+                        </span>
+                    </div>
+                </td>
+                <td class="td-or"></td>
+                <td>
+                    <div class="mfr-input-wrapper">
+                        <input type="text" class="mfr-input" id="admin-res-input-${index}" data-index="${index}" placeholder="Enter new name..." oninput="handleAdminResInput(${index})" value="${inputValue}"${inputDisabled}>
+                        <span id="admin-res-status-${index}" class="mfr-row-status${isResolved ? ' show valid' : ''}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <path d="M5 12l5 5L20 7"/>
+                            </svg>
+                        </span>
+                    </div>
+                </td>
+            </tr>`;
+        }
     });
 
     tbody.innerHTML = html;
 
-    // Set select values after rendering (since HTML option matching needs DOM)
+    // Set select values after rendering
     state.adminResolutions.forEach((resolution, index) => {
         if (resolution.type === 'existing') {
             const select = document.getElementById(`admin-res-select-${index}`);
@@ -1455,18 +1536,24 @@ function handleAdminResInput(index) {
 }
 
 function updateAdminResolutionStatus() {
-    const total = state.adminResolutionData.length;
+    const unmappedCount = state.adminResolutionData.filter(d => !d.mapped).length;
     const resolved = state.adminResolutions.size;
     const dot = document.getElementById('adminResolutionDot');
     const text = document.getElementById('adminResolutionStatusText');
     const btn = document.getElementById('adminResolutionSaveBtn');
 
-    if (dot) {
-        dot.classList.toggle('complete', resolved > 0);
-        dot.classList.toggle('incomplete', resolved === 0);
+    if (unmappedCount === 0) {
+        if (dot) { dot.classList.add('complete'); dot.classList.remove('incomplete'); }
+        if (text) text.textContent = 'All mapped';
+        if (btn) btn.disabled = true;
+    } else {
+        if (dot) {
+            dot.classList.toggle('complete', resolved > 0);
+            dot.classList.toggle('incomplete', resolved === 0);
+        }
+        if (text) text.textContent = `${resolved} of ${unmappedCount} resolved`;
+        if (btn) btn.disabled = resolved === 0;
     }
-    if (text) text.textContent = `${resolved} of ${total} resolved`;
-    if (btn) btn.disabled = resolved === 0;
 }
 
 async function saveAdminResolutions() {
