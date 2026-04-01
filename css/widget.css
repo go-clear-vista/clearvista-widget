@@ -7642,6 +7642,24 @@ button.sel-btn .sel-btn-icon {
     background: var(--color-bg-primary);
 }
 
+.res-dropdown-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.1s ease;
+}
+
+.res-dropdown-clear:hover {
+    background: var(--color-danger, #ef4444);
+    color: #fff;
+}
+
 /* Floating panel (appended to body, positioned fixed) */
 .res-dropdown-floating {
     position: fixed;

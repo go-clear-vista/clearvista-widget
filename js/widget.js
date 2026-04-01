@@ -1429,8 +1429,9 @@ function renderAdminResolutionTable() {
                 const inputDisabled = resolution.type === 'existing' ? ' disabled' : '';
                 const inputValue = resolution.type === 'new' ? resolution.value : '';
                 const ddDisabled = resolution.type === 'new' ? ' dd-disabled' : '';
-                const ddText = resolution.type === 'existing' ? escapeHtml(resolution.value) : '-- Select Common Name --';
+                const ddText = resolution.type === 'existing' ? escapeHtml(resolution.value) : '-- Select From Zoho --';
                 const ddPlaceholder = resolution.type === 'existing' ? '' : ' placeholder';
+                const ddClearBtn = resolution.type === 'existing' ? `<span class="res-dropdown-clear" onclick="event.stopPropagation(); clearResSelection('admin', ${index})" title="Clear selection"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : '';
 
                 html += `<tr class="mfr-row row-valid row-editing" id="admin-res-row-${index}">
                     <td class="col-source">
@@ -1440,6 +1441,7 @@ function renderAdminResolutionTable() {
                         <div class="res-dropdown${ddDisabled}" id="admin-res-dd-${index}">
                             <button type="button" class="res-dropdown-trigger" id="admin-res-dd-trigger-${index}" onclick="toggleResDropdown('admin', ${index})">
                                 <span class="res-dropdown-text${ddPlaceholder}" id="admin-res-dd-text-${index}">${ddText}</span>
+                                ${ddClearBtn}
                                 <svg class="mfr-dropdown-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
                             </button>
                         </div>
@@ -1496,8 +1498,9 @@ function renderAdminResolutionTable() {
             const inputDisabled = resolution && resolution.type === 'existing' ? ' disabled' : '';
             const inputValue = resolution && resolution.type === 'new' ? resolution.value : '';
             const ddDisabled = resolution && resolution.type === 'new' ? ' dd-disabled' : '';
-            const ddText = resolution && resolution.type === 'existing' ? escapeHtml(resolution.value) : '-- Select Common Name --';
+            const ddText = resolution && resolution.type === 'existing' ? escapeHtml(resolution.value) : '-- Select From Zoho --';
             const ddPlaceholder = resolution && resolution.type === 'existing' ? '' : ' placeholder';
+            const ddClearBtn = resolution && resolution.type === 'existing' ? `<span class="res-dropdown-clear" onclick="event.stopPropagation(); clearResSelection('admin', ${index})" title="Clear selection"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : '';
 
             html += `<tr class="mfr-row${rowClass}" id="admin-res-row-${index}">
                 <td class="col-source">
@@ -1507,6 +1510,7 @@ function renderAdminResolutionTable() {
                     <div class="res-dropdown${ddDisabled}" id="admin-res-dd-${index}">
                         <button type="button" class="res-dropdown-trigger" id="admin-res-dd-trigger-${index}" onclick="toggleResDropdown('admin', ${index})">
                             <span class="res-dropdown-text${ddPlaceholder}" id="admin-res-dd-text-${index}">${ddText}</span>
+                            ${ddClearBtn}
                             <svg class="mfr-dropdown-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
                         </button>
                     </div>
@@ -1764,11 +1768,45 @@ function selectResDropdownOption(value) {
 function clearResDropdownSelection(prefix, index) {
     const textEl = document.getElementById(`${prefix === 'admin' ? 'admin-res' : 'mfr-res'}-dd-text-${index}`);
     if (textEl) {
-        textEl.textContent = '-- Select Common Name --';
+        textEl.textContent = '-- Select From Zoho --';
         textEl.classList.add('placeholder');
     }
     const ddEl = document.getElementById(`${prefix === 'admin' ? 'admin-res' : 'mfr-res'}-dd-${index}`);
     if (ddEl) ddEl.classList.remove('dd-disabled');
+}
+
+function clearResSelection(prefix, index) {
+    closeResDropdown();
+    clearResDropdownSelection(prefix, index);
+
+    if (prefix === 'admin') {
+        const input = document.getElementById(`admin-res-input-${index}`);
+        const row = document.getElementById(`admin-res-row-${index}`);
+        const status = document.getElementById(`admin-res-status-${index}`);
+        const existing = state.adminResolutions.get(index);
+        const oldCanonical = existing ? existing.oldCanonicalName : undefined;
+        if (input) input.disabled = false;
+        if (oldCanonical) {
+            // Editing a mapped row — clear selection but stay in edit mode
+            state.adminResolutions.set(index, { type: 'pending', oldCanonicalName: oldCanonical });
+            if (row) row.classList.remove('row-valid');
+            if (status) status.classList.remove('show', 'valid');
+        } else {
+            state.adminResolutions.delete(index);
+            if (row) row.classList.remove('row-valid');
+            if (status) status.classList.remove('show', 'valid');
+        }
+        updateAdminResolutionStatus();
+    } else {
+        const input = document.getElementById(`mfr-input-${index}`);
+        const row = document.getElementById(`mfr-row-${index}`);
+        const status = document.getElementById(`mfr-status-${index}`);
+        if (input) input.disabled = false;
+        state.mfrResolutions.delete(index);
+        if (row) row.classList.remove('row-valid');
+        if (status) status.classList.remove('show', 'valid');
+        updateMfrResolutionStatus();
+    }
 }
 
 function handleAdminResInput(index) {
