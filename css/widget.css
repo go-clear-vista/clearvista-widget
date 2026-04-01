@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget — Stylesheet
  * Industrial-Utilitarian Design System
- * Version: 3.11
- * Updated: April 1, 2026 — Instant CSS tooltips replacing native title delays on admin sidebar
+ * Version: 3.12
+ * Updated: April 1, 2026 — Edit button and row-editing styles for mapped name resolution rows
  * Supports: TD Synnex, Ingram Micro, ADI Global
  */
 
@@ -7535,4 +7535,57 @@ button.sel-btn .sel-btn-icon {
     color: var(--color-accent-dark);
     font-weight: 600;
     padding: 6px 8px;
+}
+
+.admin-res-mapped-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.admin-res-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 0.1s ease;
+    padding: 0;
+}
+
+.admin-res-edit-btn:hover {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+}
+
+.admin-res-cancel-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 0.1s ease;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.admin-res-cancel-btn:hover {
+    background: var(--color-danger, #ef4444);
+    border-color: var(--color-danger, #ef4444);
+    color: #fff;
+}
+
+.mfr-row.row-editing {
+    background: rgba(14, 165, 233, 0.04);
 }

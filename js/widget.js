@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.8
- * Updated: March 31, 2026 — Resolution filter (Mapped/Unmapped/All), sidebar collapse, header text fix
+ * Version: 3.9
+ * Updated: April 1, 2026 — Name Resolution: editable mapped rows with re-mapping support
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -1423,24 +1423,76 @@ function renderAdminResolutionTable() {
         const escaped = entry.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         if (entry.mapped) {
-            // Mapped row — show current canonical name as read-only
             const canonEscaped = entry.canonicalName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-            html += `<tr class="mfr-row row-valid" id="admin-res-row-${index}">
-                <td class="col-source">
-                    <span class="mfr-name-cell">${escaped}</span>
-                </td>
-                <td>
-                    <span class="admin-res-mapped-value">${canonEscaped}</span>
-                </td>
-                <td class="td-or"></td>
-                <td>
-                    <span class="mfr-row-status show valid">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                            <path d="M5 12l5 5L20 7"/>
-                        </svg>
-                    </span>
-                </td>
-            </tr>`;
+            const resolution = state.adminResolutions.get(index);
+
+            if (resolution) {
+                // Mapped row being edited — show editable controls
+                const selectDisabled = resolution.type === 'new' ? ' disabled' : '';
+                const inputDisabled = resolution.type === 'existing' ? ' disabled' : '';
+                const inputValue = resolution.type === 'new' ? resolution.value : '';
+
+                html += `<tr class="mfr-row row-valid row-editing" id="admin-res-row-${index}">
+                    <td class="col-source">
+                        <span class="mfr-name-cell">${escaped}</span>
+                    </td>
+                    <td>
+                        <div class="mfr-select-wrapper">
+                            <select class="mfr-select" id="admin-res-select-${index}" data-index="${index}" onchange="handleAdminResSelect(${index})"${selectDisabled}>
+                                <option value="">-- Select --</option>
+                                ${canonicalOptions}
+                            </select>
+                            <span class="mfr-select-arrow">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <path d="M6 9l6 6 6-6"/>
+                                </svg>
+                            </span>
+                        </div>
+                    </td>
+                    <td class="td-or"></td>
+                    <td>
+                        <div class="mfr-input-wrapper">
+                            <input type="text" class="mfr-input" id="admin-res-input-${index}" data-index="${index}" placeholder="Enter new name..." oninput="handleAdminResInput(${index})" value="${inputValue}"${inputDisabled}>
+                            <span id="admin-res-status-${index}" class="mfr-row-status show valid">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <path d="M5 12l5 5L20 7"/>
+                                </svg>
+                            </span>
+                            <button class="admin-res-cancel-btn" onclick="cancelAdminResEdit(${index})" title="Cancel edit">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </td>
+                </tr>`;
+            } else {
+                // Mapped row — read-only with edit button
+                html += `<tr class="mfr-row row-valid" id="admin-res-row-${index}">
+                    <td class="col-source">
+                        <span class="mfr-name-cell">${escaped}</span>
+                    </td>
+                    <td>
+                        <span class="admin-res-mapped-value">${canonEscaped}</span>
+                    </td>
+                    <td class="td-or"></td>
+                    <td>
+                        <div class="admin-res-mapped-actions">
+                            <span class="mfr-row-status show valid">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <path d="M5 12l5 5L20 7"/>
+                                </svg>
+                            </span>
+                            <button class="admin-res-edit-btn" onclick="editAdminResMapping(${index})" title="Edit mapping">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </td>
+                </tr>`;
+            }
         } else {
             // Unmapped row — editable dropdown + create new
             const resolution = state.adminResolutions.get(index);
@@ -1500,14 +1552,24 @@ function handleAdminResSelect(index) {
     const input = document.getElementById(`admin-res-input-${index}`);
     const row = document.getElementById(`admin-res-row-${index}`);
     const status = document.getElementById(`admin-res-status-${index}`);
+    const existing = state.adminResolutions.get(index);
+    const oldCanonical = existing ? existing.oldCanonicalName : undefined;
 
     if (select.value) {
         if (input) { input.value = ''; input.disabled = true; }
-        state.adminResolutions.set(index, { type: 'existing', value: select.value });
+        const resolution = { type: 'existing', value: select.value };
+        if (oldCanonical) resolution.oldCanonicalName = oldCanonical;
+        state.adminResolutions.set(index, resolution);
         if (row) row.classList.add('row-valid');
         if (status) status.classList.add('show', 'valid');
     } else {
         if (input) input.disabled = false;
+        // If this was a mapped row being edited, deleting means cancel edit — re-render
+        if (oldCanonical) {
+            state.adminResolutions.delete(index);
+            renderAdminResolutionTable();
+            return;
+        }
         state.adminResolutions.delete(index);
         if (row) row.classList.remove('row-valid');
         if (status) status.classList.remove('show', 'valid');
@@ -1520,14 +1582,24 @@ function handleAdminResInput(index) {
     const select = document.getElementById(`admin-res-select-${index}`);
     const row = document.getElementById(`admin-res-row-${index}`);
     const status = document.getElementById(`admin-res-status-${index}`);
+    const existing = state.adminResolutions.get(index);
+    const oldCanonical = existing ? existing.oldCanonicalName : undefined;
 
     if (input.value.trim()) {
         if (select) { select.value = ''; select.disabled = true; }
-        state.adminResolutions.set(index, { type: 'new', value: input.value.trim() });
+        const resolution = { type: 'new', value: input.value.trim() };
+        if (oldCanonical) resolution.oldCanonicalName = oldCanonical;
+        state.adminResolutions.set(index, resolution);
         if (row) row.classList.add('row-valid');
         if (status) status.classList.add('show', 'valid');
     } else {
         if (select) select.disabled = false;
+        // If this was a mapped row being edited, deleting means cancel edit — re-render
+        if (oldCanonical) {
+            state.adminResolutions.delete(index);
+            renderAdminResolutionTable();
+            return;
+        }
         state.adminResolutions.delete(index);
         if (row) row.classList.remove('row-valid');
         if (status) status.classList.remove('show', 'valid');
@@ -1535,14 +1607,36 @@ function handleAdminResInput(index) {
     updateAdminResolutionStatus();
 }
 
+function editAdminResMapping(index) {
+    const entry = state.adminResolutionData[index];
+    if (!entry || !entry.mapped) return;
+
+    // Pre-set the resolution to the current canonical name so the dropdown shows it selected
+    state.adminResolutions.set(index, {
+        type: 'existing',
+        value: entry.canonicalName,
+        oldCanonicalName: entry.canonicalName
+    });
+
+    // Re-render the table to show editable controls for this row
+    renderAdminResolutionTable();
+}
+
+function cancelAdminResEdit(index) {
+    state.adminResolutions.delete(index);
+    renderAdminResolutionTable();
+}
+
 function updateAdminResolutionStatus() {
     const unmappedCount = state.adminResolutionData.filter(d => !d.mapped).length;
     const resolved = state.adminResolutions.size;
+    const editingMapped = Array.from(state.adminResolutions.values()).filter(r => r.oldCanonicalName).length;
+    const newResolutions = resolved - editingMapped;
     const dot = document.getElementById('adminResolutionDot');
     const text = document.getElementById('adminResolutionStatusText');
     const btn = document.getElementById('adminResolutionSaveBtn');
 
-    if (unmappedCount === 0) {
+    if (unmappedCount === 0 && resolved === 0) {
         if (dot) { dot.classList.add('complete'); dot.classList.remove('incomplete'); }
         if (text) text.textContent = 'All mapped';
         if (btn) btn.disabled = true;
@@ -1551,7 +1645,10 @@ function updateAdminResolutionStatus() {
             dot.classList.toggle('complete', resolved > 0);
             dot.classList.toggle('incomplete', resolved === 0);
         }
-        if (text) text.textContent = `${resolved} of ${unmappedCount} resolved`;
+        const parts = [];
+        if (unmappedCount > 0) parts.push(`${newResolutions} of ${unmappedCount} resolved`);
+        if (editingMapped > 0) parts.push(`${editingMapped} edit${editingMapped > 1 ? 's' : ''}`);
+        if (text) text.textContent = parts.length > 0 ? parts.join(', ') : 'All mapped';
         if (btn) btn.disabled = resolved === 0;
     }
 }
@@ -1569,12 +1666,16 @@ async function saveAdminResolutions() {
         const mappings = [];
 
         for (const [index, resolution] of state.adminResolutions) {
-            const distributorName = state.adminResolutionData[index];
-            mappings.push({
-                distributor_name: distributorName,
+            const entry = state.adminResolutionData[index];
+            const mapping = {
+                distributor_name: entry.name,
                 canonical_name: resolution.value,
                 distributor: dist
-            });
+            };
+            if (resolution.oldCanonicalName && resolution.oldCanonicalName !== resolution.value) {
+                mapping.old_canonical_name = resolution.oldCanonicalName;
+            }
+            mappings.push(mapping);
         }
 
         const result = await saveManufacturerMappingsBatch(mappings);
