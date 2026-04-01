@@ -7590,6 +7590,10 @@ button.sel-btn .sel-btn-icon {
     background: rgba(14, 165, 233, 0.04);
 }
 
+.mfr-row.row-remove {
+    background: rgba(239, 68, 68, 0.04);
+}
+
 /* Resolution custom dropdown (reuses .mfr-dropdown-* styles for panel/options) */
 .res-dropdown {
     position: relative;

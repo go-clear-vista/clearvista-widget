@@ -1787,9 +1787,10 @@ function clearResSelection(prefix, index) {
         const oldCanonical = existing ? existing.oldCanonicalName : undefined;
         if (input) input.disabled = false;
         if (oldCanonical) {
-            // Editing a mapped row — clear selection but stay in edit mode
-            state.adminResolutions.set(index, { type: 'pending', oldCanonicalName: oldCanonical });
+            // Editing a mapped row — mark for removal (unmap)
+            state.adminResolutions.set(index, { type: 'remove', oldCanonicalName: oldCanonical });
             if (row) row.classList.remove('row-valid');
+            if (row) row.classList.add('row-remove');
             if (status) status.classList.remove('show', 'valid');
         } else {
             state.adminResolutions.delete(index);
@@ -1865,9 +1866,13 @@ function cancelAdminResEdit(index) {
 
 function updateAdminResolutionStatus() {
     const unmappedCount = state.adminResolutionData.filter(d => !d.mapped).length;
+    const allResolutions = Array.from(state.adminResolutions.values());
     const resolved = state.adminResolutions.size;
-    const editingMapped = Array.from(state.adminResolutions.values()).filter(r => r.oldCanonicalName).length;
-    const newResolutions = resolved - editingMapped;
+    const removals = allResolutions.filter(r => r.type === 'remove').length;
+    const edits = allResolutions.filter(r => r.oldCanonicalName && r.type !== 'remove' && r.type !== 'pending').length;
+    const pending = allResolutions.filter(r => r.type === 'pending').length;
+    const newResolutions = resolved - edits - removals - pending;
+    const saveable = resolved - pending; // Everything except pending can be saved
     const dot = document.getElementById('adminResolutionDot');
     const text = document.getElementById('adminResolutionStatusText');
     const btn = document.getElementById('adminResolutionSaveBtn');
@@ -1878,14 +1883,15 @@ function updateAdminResolutionStatus() {
         if (btn) btn.disabled = true;
     } else {
         if (dot) {
-            dot.classList.toggle('complete', resolved > 0);
-            dot.classList.toggle('incomplete', resolved === 0);
+            dot.classList.toggle('complete', saveable > 0);
+            dot.classList.toggle('incomplete', saveable === 0);
         }
         const parts = [];
-        if (unmappedCount > 0) parts.push(`${newResolutions} of ${unmappedCount} resolved`);
-        if (editingMapped > 0) parts.push(`${editingMapped} edit${editingMapped > 1 ? 's' : ''}`);
-        if (text) text.textContent = parts.length > 0 ? parts.join(', ') : 'All mapped';
-        if (btn) btn.disabled = resolved === 0;
+        if (unmappedCount > 0 && newResolutions > 0) parts.push(`${newResolutions} of ${unmappedCount} resolved`);
+        if (edits > 0) parts.push(`${edits} edit${edits > 1 ? 's' : ''}`);
+        if (removals > 0) parts.push(`${removals} removal${removals > 1 ? 's' : ''}`);
+        if (text) text.textContent = parts.length > 0 ? parts.join(', ') : (unmappedCount > 0 ? `0 of ${unmappedCount} resolved` : 'All mapped');
+        if (btn) btn.disabled = saveable === 0;
     }
 }
 
@@ -1902,7 +1908,18 @@ async function saveAdminResolutions() {
         const mappings = [];
 
         for (const [index, resolution] of state.adminResolutions) {
+            if (resolution.type === 'pending') continue; // Incomplete edit, skip
             const entry = state.adminResolutionData[index];
+            if (resolution.type === 'remove') {
+                // Unmap: remove alias from old canonical, no new canonical
+                mappings.push({
+                    distributor_name: entry.name,
+                    canonical_name: '',
+                    distributor: dist,
+                    old_canonical_name: resolution.oldCanonicalName
+                });
+                continue;
+            }
             const mapping = {
                 distributor_name: entry.name,
                 canonical_name: resolution.value,
