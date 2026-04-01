@@ -7389,6 +7389,12 @@ button.sel-btn .sel-btn-icon {
     min-width: 650px;
 }
 
+.admin-resolution-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
 .admin-resolution-footer {
     display: flex;
     align-items: center;
