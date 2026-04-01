@@ -1937,6 +1937,9 @@ async function saveAdminResolutions() {
             console.log(`[AdminResolution] Saved ${result.saved_count} mappings`);
             // Reload to refresh the unmapped list
             await loadAdminResolutionData(dist);
+            // Restore button after successful reload
+            btn.innerHTML = origHTML;
+            btn.disabled = true;
         } else {
             throw new Error('Save failed');
         }
