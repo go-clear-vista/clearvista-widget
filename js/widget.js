@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.10
- * Updated: April 1, 2026 — Custom searchable dropdowns for name resolution, paginated Zoho manufacturer fetch, use Zoho Manufacturers as dropdown source
+ * Version: 3.11
+ * Updated: April 1, 2026 — Dropdown flip-above when near bottom of widget, refresh mappings panel after resolution save
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -1601,12 +1601,26 @@ function toggleResDropdown(prefix, index) {
     const panel = document.getElementById('resDropdownPanel');
     if (!trigger || !panel) return;
 
-    // Position panel below trigger
+    // Position panel relative to trigger, flipping above if insufficient space below
     const rect = trigger.getBoundingClientRect();
+    const panelMaxH = 330; // ~280px list + ~36px search + padding
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const flipAbove = spaceBelow < panelMaxH && spaceAbove > spaceBelow;
+
     panel.style.position = 'fixed';
-    panel.style.top = (rect.bottom + 2) + 'px';
     panel.style.left = rect.left + 'px';
     panel.style.width = Math.max(rect.width, 280) + 'px';
+
+    if (flipAbove) {
+        panel.style.top = '';
+        panel.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
+        panel.style.maxHeight = Math.min(spaceAbove - 10, panelMaxH) + 'px';
+    } else {
+        panel.style.bottom = '';
+        panel.style.top = (rect.bottom + 2) + 'px';
+        panel.style.maxHeight = Math.min(spaceBelow - 10, panelMaxH) + 'px';
+    }
 
     resDropdownState = { open: true, prefix, index };
 
@@ -1632,7 +1646,11 @@ function toggleResDropdown(prefix, index) {
 
 function closeResDropdown() {
     const panel = document.getElementById('resDropdownPanel');
-    if (panel) panel.style.display = 'none';
+    if (panel) {
+        panel.style.display = 'none';
+        panel.style.bottom = '';
+        panel.style.maxHeight = '';
+    }
 
     if (resDropdownState.open) {
         const ddId = `${resDropdownState.prefix === 'admin' ? 'admin-res' : 'mfr-res'}-dd-${resDropdownState.index}`;
@@ -4948,6 +4966,9 @@ async function confirmMfrResolutions() {
 
         if (saveResult.success || saveResult.saved_count >= 0) {
             console.log(`[MfrResolution] Saved ${saveResult.saved_count} mappings`);
+
+            // Refresh manufacturer mappings reference panel so new mappings appear
+            loadManufacturerMappings().then(() => renderMfrMappingsTable());
 
             // Hide panel and resolve promise with the normalized map
             hideMfrResolutionPanel();
