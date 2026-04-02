@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.11
- * Updated: April 1, 2026 — Dropdown flip-above when near bottom of widget, refresh mappings panel after resolution save
+ * Version: 3.12
+ * Updated: April 1, 2026 — Fix dropdown flip positioning (use auto not empty to override CSS top)
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -1613,11 +1613,11 @@ function toggleResDropdown(prefix, index) {
     panel.style.width = Math.max(rect.width, 280) + 'px';
 
     if (flipAbove) {
-        panel.style.top = '';
+        panel.style.top = 'auto';
         panel.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
         panel.style.maxHeight = Math.min(spaceAbove - 10, panelMaxH) + 'px';
     } else {
-        panel.style.bottom = '';
+        panel.style.bottom = 'auto';
         panel.style.top = (rect.bottom + 2) + 'px';
         panel.style.maxHeight = Math.min(spaceBelow - 10, panelMaxH) + 'px';
     }
