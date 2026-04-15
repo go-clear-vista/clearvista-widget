@@ -1,8 +1,8 @@
 /**
  * Distributor Product Lookup Widget
  * For Zoho CRM Quotes module integration
- * Version: 3.12
- * Updated: April 1, 2026 — Fix dropdown flip positioning (use auto not empty to override CSS top)
+ * Version: 3.13
+ * Updated: April 14, 2026 — Fix TD Synnex partial category filter — corrected condition checks for cat2/cat3 assignment
  * Supports: TD Synnex, Ingram Micro, ADI Global
  * Features: Single & Bulk search modes, MSRP comparison, manufacturer resolution,
  *           customer discount %, smart column auto-mapping, lazy API manufacturer verification,
@@ -3043,8 +3043,8 @@ async function searchTDSynnexProducts(manufacturer, options = {}) {
         p_search: search || null
     };
     if (cat1) countBody.p_cat1 = cat1;
-    if (cat1) countBody.p_cat2 = cat2 || null;
-    if (cat2) countBody.p_cat3 = cat3 || null;
+    if (cat2) countBody.p_cat2 = cat2;
+    if (cat3) countBody.p_cat3 = cat3;
 
     // Products body adds pagination params
     const rpcBody = { ...countBody, p_limit: limit, p_offset: offset };
