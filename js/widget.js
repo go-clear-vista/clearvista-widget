@@ -36,6 +36,11 @@ const DISTRIBUTORS = {
         name: 'ADI Global',
         apiPrefix: '/adi',
         color: '#8b5cf6'
+    },
+    vendordirect: {
+        name: 'Vendor Direct',
+        apiPrefix: null,
+        color: '#f59e0b'
     }
 };
 
@@ -2516,6 +2521,13 @@ function selectDistributor(distributor) {
         if (subCatField) subCatField.closest('.filter-field').style.display = 'none';
         // Pre-populate manufacturer and category_1 dropdowns
         loadADIManufacturers();
+    } else if (distributor === 'vendordirect') {
+        // Vendor Direct: Hide cat3, hide SKU type, hide subcategory (flat single category field)
+        if (cat3Field) cat3Field.style.display = 'none';
+        if (skuTypeField) skuTypeField.style.display = 'none';
+        const subCatFieldVD = document.getElementById('subcategorySelect');
+        if (subCatFieldVD) subCatFieldVD.closest('.filter-field').style.display = 'none';
+        loadVendorDirectManufacturers();
     } else {
         // Ingram: Hide cat3, show Media Type filter (DB-driven)
         // Restore subcategory filter (may have been hidden by ADI)
@@ -3202,6 +3214,76 @@ function mapADIGlobalProduct(row) {
 
         // Source marker
         _source: 'adi',
+        _rawProduct: row
+    };
+}
+
+async function loadVendorDirectManufacturers() {
+    const countEl = document.getElementById('mfrCount');
+    try {
+        const response = await fetch(
+            `${SUPABASE_URL}/rest/v1/rpc/get_vendor_direct_manufacturers`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({})
+            }
+        );
+        if (!response.ok) throw new Error(`Failed: ${response.status}`);
+        const data = await response.json();
+        currentMfrList = data.map(r => r.manufacturer).filter(Boolean).sort();
+
+        renderMfrDropdownOptions('');
+        if (countEl) countEl.textContent = `(${currentMfrList.length})`;
+
+        // Reset trigger to placeholder
+        const triggerText = document.getElementById('mfrDropdownText');
+        if (triggerText) {
+            triggerText.textContent = '-- Select Manufacturer --';
+            triggerText.classList.add('placeholder');
+        }
+    } catch (error) {
+        console.error('[VendorDirect] Failed to load manufacturers:', error);
+        currentMfrList = [];
+        renderMfrDropdownOptions('');
+    }
+}
+
+function mapVendorDirectProduct(row) {
+    return {
+        // Core identifiers — MPN is the sole identifier for Vendor Direct
+        vendorPartNumber: row.manufacturer_part_number || '',
+        ingramPartNumber: row.manufacturer_part_number || '',
+        distributorPartNumber: row.manufacturer_part_number || '',
+
+        // Product info
+        description: row.part_description || '',
+        vendorName: row.manufacturer || '',
+        category: row.category || '',
+        category2: '',
+
+        extraDescription: row.part_description || '',
+
+        // Pricing — dealer_price is the reseller/customer price
+        retailPrice: row.msrp ? parseFloat(row.msrp) : null,
+        pricingData: {
+            _dbSource: true,
+            pricing: {
+                retailPrice: row.msrp ? parseFloat(row.msrp) : null,
+                customerPrice: row.dealer_price ? parseFloat(row.dealer_price) : null
+            }
+        },
+        resellerPrice: row.dealer_price ? parseFloat(row.dealer_price) : null,
+
+        // UPC
+        upcCode: row.upc_code || '',
+
+        // Source marker
+        _source: 'vendordirect',
         _rawProduct: row
     };
 }
@@ -3923,6 +4005,55 @@ async function loadProducts(page = 1) {
             const totalRecords = await countResponse.json();
 
             products = (rows || []).map(row => mapADIGlobalProduct(row));
+
+            const totalPages = Math.ceil((totalRecords || 0) / PAGE_SIZE);
+            pagination = {
+                page: page,
+                pageSize: PAGE_SIZE,
+                totalPages: totalPages,
+                totalRecords: totalRecords || 0
+            };
+        } else if (state.currentDistributor === 'vendordirect') {
+            // Vendor Direct: Query Supabase DB
+            const offset = (page - 1) * PAGE_SIZE;
+            const rpcBody = {
+                p_manufacturer: state.manufacturer,
+                p_search: (state.skuKeyword && state.skuKeyword.length >= 2) ? state.skuKeyword : null,
+                p_category: state.category || null,
+                p_limit: PAGE_SIZE,
+                p_offset: offset
+            };
+
+            // Fetch products and count in parallel
+            const [productsResponse, countResponse] = await Promise.all([
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_vendor_direct_products`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify(rpcBody)
+                }),
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_vendor_direct_products_count`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify({
+                        p_manufacturer: rpcBody.p_manufacturer,
+                        p_search: rpcBody.p_search,
+                        p_category: rpcBody.p_category
+                    })
+                })
+            ]);
+
+            const rows = await productsResponse.json();
+            const totalRecords = await countResponse.json();
+
+            products = (rows || []).map(row => mapVendorDirectProduct(row));
 
             const totalPages = Math.ceil((totalRecords || 0) / PAGE_SIZE);
             pagination = {
@@ -5528,6 +5659,23 @@ async function submitQueue() {
                 UPC: product.upcCode || '',
                 Description: product.extraDescription || '',
                 Last_Sync_Source: 'ADI Global',
+                Quantity: product.qty || 1,
+                Customer_Discount: parseInt(product.customerDiscount) || 0
+            };
+        }
+
+        // Vendor Direct format
+        if (product._source === 'vendordirect') {
+            return {
+                Product_Code: product.vendorPartNumber || '',
+                Product_Name: product.description || '',
+                Manufacturer: normalizedMfr,
+                MSRP: msrp,
+                Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || null,
+                Vendor_Direct_Category: product.category || '',
+                UPC: product.upcCode || '',
+                Description: product.extraDescription || '',
+                Last_Sync_Source: 'Vendor Direct',
                 Quantity: product.qty || 1,
                 Customer_Discount: parseInt(product.customerDiscount) || 0
             };

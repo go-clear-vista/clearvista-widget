@@ -28,8 +28,6 @@
                     <span id="statusText">Checking...</span>
                     <button onclick="authenticate()" class="btn-link">Reconnect</button>
                 </div>
-            </div>
-            <div class="header-buttons">
                 <!-- Mode Toggle -->
                 <div class="bulk-toggle" id="bulkToggle">
                     <button class="bulk-toggle-btn" id="bulkToggleBtn" onclick="handleBulkToggleClick()">
@@ -37,7 +35,12 @@
                     </button>
                     <span class="new-badge">NEW</span>
                 </div>
+            </div>
+            <div class="header-buttons">
                 <div class="distributor-tabs">
+                    <button class="tab-btn" data-distributor="vendordirect" onclick="selectDistributor('vendordirect')">
+                        <span class="tab-icon">VD</span>Vendor Direct
+                    </button>
                     <button class="tab-btn active" data-distributor="ingram" onclick="selectDistributor('ingram')">
                         <span class="tab-icon">IM</span>Ingram Micro
                     </button>

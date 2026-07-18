@@ -6412,6 +6412,7 @@ button.sel-btn .sel-btn-icon {
 .mfr-admin-tab.active[data-dist="tdsynnex"] { border-bottom-color: #10b981; }
 .mfr-admin-tab.active[data-dist="ingram"] { border-bottom-color: #0ea5e9; }
 .mfr-admin-tab.active[data-dist="adi"] { border-bottom-color: #8b5cf6; }
+.mfr-admin-tab.active[data-dist="vendordirect"] { border-bottom-color: #f59e0b; }
 
 .mfr-admin-tab-dot {
     width: 8px;
