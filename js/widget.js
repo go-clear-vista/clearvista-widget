@@ -1269,6 +1269,9 @@ async function loadAdminResolutionData(dist) {
         } else if (dist === 'ingram') {
             rpcName = 'get_ingram_manufacturers';
             fieldName = 'manufacturer';
+        } else if (dist === 'vendordirect') {
+            rpcName = 'get_vendor_direct_manufacturers';
+            fieldName = 'manufacturer';
         } else {
             rpcName = 'get_adi_manufacturers';
             fieldName = 'manufacturer';
@@ -1295,6 +1298,7 @@ async function loadAdminResolutionData(dist) {
         let aliasField;
         if (dist === 'tdsynnex') aliasField = 'td_synnex_aliases';
         else if (dist === 'ingram') aliasField = 'ingram_micro_aliases';
+        else if (dist === 'vendordirect') aliasField = 'vendor_direct_aliases';
         else aliasField = 'adi_global_aliases';
 
         // Build map of distributor name (uppercase) → canonical name
