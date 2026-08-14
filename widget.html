@@ -50,6 +50,9 @@
                     <button class="tab-btn" data-distributor="adi" onclick="selectDistributor('adi')">
                         <span class="tab-icon">AD</span>ADI Global
                     </button>
+                    <button class="tab-btn" data-distributor="almo" onclick="selectDistributor('almo')">
+                        <span class="tab-icon">AL</span>Almo
+                    </button>
                 </div>
             </div>
             <button class="admin-cog-btn" id="adminCogBtn" onclick="handleAdminCogClick()" title="">
@@ -131,8 +134,8 @@
                             <button class="mfr-admin-tab" data-dist="adi" onclick="selectMfrAdminTab('adi')">
                                 <span class="mfr-admin-tab-dot" style="background: #8b5cf6;"></span>ADI Global
                             </button>
-                            <button class="mfr-admin-tab" data-dist="vendordirect" onclick="selectMfrAdminTab('vendordirect')">
-                                <span class="mfr-admin-tab-dot" style="background: #f59e0b;"></span>Vendor Direct
+                            <button class="mfr-admin-tab" data-dist="almo" onclick="selectMfrAdminTab('almo')">
+                                <span class="mfr-admin-tab-dot" style="background: #f97316;"></span>Almo
                             </button>
                         </div>
 
@@ -230,8 +233,8 @@
                             <button class="mfr-admin-tab" data-dist="adi" onclick="selectAdminResolutionTab('adi')">
                                 <span class="mfr-admin-tab-dot" style="background: #8b5cf6;"></span>ADI Global
                             </button>
-                            <button class="mfr-admin-tab" data-dist="vendordirect" onclick="selectAdminResolutionTab('vendordirect')">
-                                <span class="mfr-admin-tab-dot" style="background: #f59e0b;"></span>Vendor Direct
+                            <button class="mfr-admin-tab" data-dist="almo" onclick="selectAdminResolutionTab('almo')">
+                                <span class="mfr-admin-tab-dot" style="background: #f97316;"></span>Almo
                             </button>
                         </div>
 
@@ -451,6 +454,7 @@
                                         <th class="mfr-th-ingram">Ingram Micro</th>
                                         <th class="mfr-th-synnex">TD Synnex</th>
                                         <th class="mfr-th-adi">ADI Global</th>
+                                        <th class="mfr-th-almo">Almo</th>
                                     </tr>
                                 </thead>
                                 <tbody id="mfrMappingsTableBody">

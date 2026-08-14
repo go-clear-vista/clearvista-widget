@@ -41,6 +41,11 @@ const DISTRIBUTORS = {
         name: 'Vendor Direct',
         apiPrefix: null,
         color: '#f59e0b'
+    },
+    almo: {
+        name: 'Almo',
+        apiPrefix: null,
+        color: '#f97316'
     }
 };
 
@@ -119,6 +124,7 @@ const state = {
         tdsynnex: { running: false, runId: null, status: null, conclusion: null },
         ingram: { running: false, runId: null, status: null, conclusion: null },
         adi: { running: false, runId: null, status: null, conclusion: null },
+        almo: { running: false, runId: null, status: null, conclusion: null },
     },
     workflowPollingTimers: {},
     workflowLastRun: {},
@@ -1269,8 +1275,8 @@ async function loadAdminResolutionData(dist) {
         } else if (dist === 'ingram') {
             rpcName = 'get_ingram_manufacturers';
             fieldName = 'manufacturer';
-        } else if (dist === 'vendordirect') {
-            rpcName = 'get_vendor_direct_manufacturers';
+        } else if (dist === 'almo') {
+            rpcName = 'get_almo_manufacturers';
             fieldName = 'manufacturer';
         } else {
             rpcName = 'get_adi_manufacturers';
@@ -1298,7 +1304,7 @@ async function loadAdminResolutionData(dist) {
         let aliasField;
         if (dist === 'tdsynnex') aliasField = 'td_synnex_aliases';
         else if (dist === 'ingram') aliasField = 'ingram_micro_aliases';
-        else if (dist === 'vendordirect') aliasField = 'vendor_direct_aliases';
+        else if (dist === 'almo') aliasField = 'almo_aliases';
         else aliasField = 'adi_global_aliases';
 
         // Build map of distributor name (uppercase) → canonical name
@@ -2532,6 +2538,13 @@ function selectDistributor(distributor) {
         const subCatFieldVD = document.getElementById('subcategorySelect');
         if (subCatFieldVD) subCatFieldVD.closest('.filter-field').style.display = 'none';
         loadVendorDirectManufacturers();
+    } else if (distributor === 'almo') {
+        // Almo: Hide cat3, hide SKU type, hide subcategory (uses category_1 / category_2)
+        if (cat3Field) cat3Field.style.display = 'none';
+        if (skuTypeField) skuTypeField.style.display = 'none';
+        const subCatFieldAlmo = document.getElementById('subcategorySelect');
+        if (subCatFieldAlmo) subCatFieldAlmo.closest('.filter-field').style.display = 'none';
+        loadAlmoManufacturers();
     } else {
         // Ingram: Hide cat3, show Media Type filter (DB-driven)
         // Restore subcategory filter (may have been hidden by ADI)
@@ -3222,6 +3235,40 @@ function mapADIGlobalProduct(row) {
     };
 }
 
+async function loadAlmoManufacturers() {
+    const countEl = document.getElementById('mfrCount');
+    try {
+        const response = await fetch(
+            `${SUPABASE_URL}/rest/v1/rpc/get_almo_manufacturers`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({})
+            }
+        );
+        if (!response.ok) throw new Error(`Failed: ${response.status}`);
+        const data = await response.json();
+        currentMfrList = data.map(r => r.manufacturer).filter(Boolean).sort();
+
+        renderMfrDropdownOptions('');
+        if (countEl) countEl.textContent = `(${currentMfrList.length})`;
+
+        const triggerText = document.getElementById('mfrDropdownText');
+        if (triggerText) {
+            triggerText.textContent = '-- Select Manufacturer --';
+            triggerText.classList.add('placeholder');
+        }
+    } catch (error) {
+        console.error('[Almo] Failed to load manufacturers:', error);
+        currentMfrList = [];
+        renderMfrDropdownOptions('');
+    }
+}
+
 async function loadVendorDirectManufacturers() {
     const countEl = document.getElementById('mfrCount');
     try {
@@ -3255,6 +3302,37 @@ async function loadVendorDirectManufacturers() {
         currentMfrList = [];
         renderMfrDropdownOptions('');
     }
+}
+
+function mapAlmoProduct(row) {
+    return {
+        vendorPartNumber: row.almo_sku || '',
+        ingramPartNumber: row.almo_sku || '',
+        distributorPartNumber: row.almo_sku || '',
+        almoSku: row.almo_sku || '',
+
+        description: row.product_name || row.description || '',
+        vendorName: row.manufacturer || '',
+        category: row.category_1 || '',
+        category2: row.category_2 || '',
+
+        extraDescription: row.description || '',
+
+        retailPrice: row.unit_price ? parseFloat(row.unit_price) : null,
+        pricingData: {
+            _dbSource: true,
+            pricing: {
+                retailPrice: row.unit_price ? parseFloat(row.unit_price) : null,
+                customerPrice: row.unit_cost ? parseFloat(row.unit_cost) : null
+            }
+        },
+        resellerPrice: row.unit_cost ? parseFloat(row.unit_cost) : null,
+
+        upcCode: row.upc || '',
+
+        _source: 'almo',
+        _rawProduct: row
+    };
 }
 
 function mapVendorDirectProduct(row) {
@@ -4009,6 +4087,54 @@ async function loadProducts(page = 1) {
             const totalRecords = await countResponse.json();
 
             products = (rows || []).map(row => mapADIGlobalProduct(row));
+
+            const totalPages = Math.ceil((totalRecords || 0) / PAGE_SIZE);
+            pagination = {
+                page: page,
+                pageSize: PAGE_SIZE,
+                totalPages: totalPages,
+                totalRecords: totalRecords || 0
+            };
+        } else if (state.currentDistributor === 'almo') {
+            // Almo: Query Supabase DB
+            const offset = (page - 1) * PAGE_SIZE;
+            const rpcBody = {
+                p_manufacturer: state.manufacturer,
+                p_search: (state.skuKeyword && state.skuKeyword.length >= 2) ? state.skuKeyword : null,
+                p_category: state.category || null,
+                p_limit: PAGE_SIZE,
+                p_offset: offset
+            };
+
+            const [productsResponse, countResponse] = await Promise.all([
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_almo_products`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify(rpcBody)
+                }),
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_almo_products_count`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: JSON.stringify({
+                        p_manufacturer: rpcBody.p_manufacturer,
+                        p_search: rpcBody.p_search,
+                        p_category: rpcBody.p_category
+                    })
+                })
+            ]);
+
+            const rows = await productsResponse.json();
+            const totalRecords = await countResponse.json();
+
+            products = (rows || []).map(row => mapAlmoProduct(row));
 
             const totalPages = Math.ceil((totalRecords || 0) / PAGE_SIZE);
             pagination = {
@@ -5663,6 +5789,25 @@ async function submitQueue() {
                 UPC: product.upcCode || '',
                 Description: product.extraDescription || '',
                 Last_Sync_Source: 'ADI Global',
+                Quantity: product.qty || 1,
+                Customer_Discount: parseInt(product.customerDiscount) || 0
+            };
+        }
+
+        // Almo format
+        if (product._source === 'almo') {
+            return {
+                Product_Code: product.almoSku || product.vendorPartNumber || '',
+                Product_Name: product.description || '',
+                Manufacturer: normalizedMfr,
+                Almo_SKU: product.almoSku || '',
+                MSRP: msrp,
+                Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || null,
+                Almo_Category_1: product.category || '',
+                Almo_Category_2: product.category2 || '',
+                UPC: product.upcCode || '',
+                Description: product.extraDescription || '',
+                Last_Sync_Source: 'Almo',
                 Quantity: product.qty || 1,
                 Customer_Discount: parseInt(product.customerDiscount) || 0
             };
@@ -8728,6 +8873,8 @@ function bulkMapRpcRowToProduct(row, distributor) {
                 category: row.category_1 || '',
                 _source: 'adi',
             };
+        case 'almo':
+            return mapAlmoProduct(row);
         default:
             return { mpn: '', manufacturer: '', description: '', msrp: 0, resellerPrice: 0, _source: 'ingram' };
     }
