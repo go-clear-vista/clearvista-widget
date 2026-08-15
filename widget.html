@@ -134,6 +134,9 @@
                             <button class="mfr-admin-tab" data-dist="adi" onclick="selectMfrAdminTab('adi')">
                                 <span class="mfr-admin-tab-dot" style="background: #8b5cf6;"></span>ADI Global
                             </button>
+                            <button class="mfr-admin-tab" data-dist="vendordirect" onclick="selectMfrAdminTab('vendordirect')">
+                                <span class="mfr-admin-tab-dot" style="background: #f59e0b;"></span>Vendor Direct
+                            </button>
                             <button class="mfr-admin-tab" data-dist="almo" onclick="selectMfrAdminTab('almo')">
                                 <span class="mfr-admin-tab-dot" style="background: #f97316;"></span>Almo
                             </button>
@@ -159,6 +162,12 @@
                             </svg>
                             <p>No filter data available yet</p>
                             <span>Run the import workflow to populate manufacturer data for this distributor.</span>
+                            <button class="mfr-admin-btn-primary" id="mfrEmptyRunImportBtn" onclick="mfrApplyNow()">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                </svg>
+                                Run Import
+                            </button>
                         </div>
 
                         <!-- Two-Column Layout -->
@@ -232,6 +241,9 @@
                             </button>
                             <button class="mfr-admin-tab" data-dist="adi" onclick="selectAdminResolutionTab('adi')">
                                 <span class="mfr-admin-tab-dot" style="background: #8b5cf6;"></span>ADI Global
+                            </button>
+                            <button class="mfr-admin-tab" data-dist="vendordirect" onclick="selectAdminResolutionTab('vendordirect')">
+                                <span class="mfr-admin-tab-dot" style="background: #f59e0b;"></span>Vendor Direct
                             </button>
                             <button class="mfr-admin-tab" data-dist="almo" onclick="selectAdminResolutionTab('almo')">
                                 <span class="mfr-admin-tab-dot" style="background: #f97316;"></span>Almo
@@ -444,6 +456,7 @@
                             <table class="mfr-mappings-table">
                                 <colgroup>
                                     <col class="mfr-col-common">
+                                    <col class="mfr-col-dist">
                                     <col class="mfr-col-dist">
                                     <col class="mfr-col-dist">
                                     <col class="mfr-col-dist">
@@ -1038,6 +1051,7 @@
                                         <col class="mfr-col-dist">
                                         <col class="mfr-col-dist">
                                         <col class="mfr-col-dist">
+                                        <col class="mfr-col-dist">
                                     </colgroup>
                                     <thead>
                                         <tr>
@@ -1045,6 +1059,7 @@
                                             <th class="mfr-th-ingram">Ingram Micro</th>
                                             <th class="mfr-th-synnex">TD Synnex</th>
                                             <th class="mfr-th-adi">ADI Global</th>
+                                            <th class="mfr-th-almo">Almo</th>
                                         </tr>
                                     </thead>
                                     <tbody id="bulkMfrMappingsTableBody">

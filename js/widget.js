@@ -1278,6 +1278,9 @@ async function loadAdminResolutionData(dist) {
         } else if (dist === 'almo') {
             rpcName = 'get_almo_manufacturers';
             fieldName = 'manufacturer';
+        } else if (dist === 'vendordirect') {
+            rpcName = 'get_vendor_direct_manufacturers';
+            fieldName = 'manufacturer';
         } else {
             rpcName = 'get_adi_manufacturers';
             fieldName = 'manufacturer';
@@ -1305,6 +1308,7 @@ async function loadAdminResolutionData(dist) {
         if (dist === 'tdsynnex') aliasField = 'td_synnex_aliases';
         else if (dist === 'ingram') aliasField = 'ingram_micro_aliases';
         else if (dist === 'almo') aliasField = 'almo_aliases';
+        else if (dist === 'vendordirect') aliasField = 'vendor_direct_aliases';
         else aliasField = 'adi_global_aliases';
 
         // Build map of distributor name (uppercase) → canonical name
@@ -5353,6 +5357,7 @@ function renderMfrMappingsTable(isBulk) {
             renderAliasCell(mapping.ingram_micro_aliases, 'mfr-alias-tag-ingram') +
             renderAliasCell(mapping.td_synnex_aliases, 'mfr-alias-tag-synnex') +
             renderAliasCell(mapping.adi_global_aliases, 'mfr-alias-tag-adi') +
+            renderAliasCell(mapping.almo_aliases, 'mfr-alias-tag-almo') +
             '</tr>';
     }).join('');
 }
@@ -5681,6 +5686,8 @@ async function submitQueue() {
                 switch (dist) {
                     case 'tdsynnex': mapped = mapTDSynnexProduct(raw); break;
                     case 'adi': mapped = mapADIGlobalProduct(raw); break;
+                    case 'almo': mapped = mapAlmoProduct(raw); break;
+                    case 'vendordirect': mapped = mapVendorDirectProduct(raw); break;
                     default: mapped = {
                         ingramPartNumber: raw.ingram_part_number || product._fileVpn || product.mpn || '',
                         vendorPartNumber: raw.vendor_part_number || raw.manufacturer_part_number || '',

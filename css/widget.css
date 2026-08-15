@@ -3252,6 +3252,10 @@ button svg {
     border-bottom-color: #f59e0b !important;
 }
 
+.mfr-th-almo {
+    border-bottom-color: #f97316 !important;
+}
+
 /* Column widths via colgroup */
 .mfr-col-common {
     width: 24%;
@@ -3292,6 +3296,12 @@ button svg {
     background: rgba(245, 158, 11, 0.08);
     border: 1px solid rgba(245, 158, 11, 0.25);
     color: #b45309;
+}
+
+.mfr-alias-tag-almo {
+    background: rgba(249, 115, 22, 0.08);
+    border: 1px solid rgba(249, 115, 22, 0.25);
+    color: #c2410c;
 }
 
 .mfr-mappings-table tbody tr:hover {
