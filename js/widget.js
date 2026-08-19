@@ -125,6 +125,7 @@ const state = {
         ingram: { running: false, runId: null, status: null, conclusion: null },
         adi: { running: false, runId: null, status: null, conclusion: null },
         almo: { running: false, runId: null, status: null, conclusion: null },
+        vendordirect: { running: false, runId: null, status: null, conclusion: null },
     },
     workflowPollingTimers: {},
     workflowLastRun: {},
