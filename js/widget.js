@@ -3290,7 +3290,25 @@ async function loadVendorDirectManufacturers() {
         );
         if (!response.ok) throw new Error(`Failed: ${response.status}`);
         const data = await response.json();
-        currentMfrList = data.map(r => r.manufacturer).filter(Boolean).sort();
+        let vdList = data.map(r => r.manufacturer).filter(Boolean);
+
+        // Apply the admin manufacturer filter: only show 'included' manufacturers.
+        // Non-destructive — all VD products stay in the DB; this only limits the
+        // dropdown. If the filter can't be read, fall back to showing everything.
+        try {
+            const fRes = await fetch(`${GITHUB_PROXY_BASE}?action=get-filters&distributor=vendordirect`);
+            if (fRes.ok) {
+                const fData = await fRes.json();
+                if (fData && Array.isArray(fData.active_manufacturers)) {
+                    const activeSet = new Set(fData.active_manufacturers.map(m => String(m).toLowerCase()));
+                    vdList = vdList.filter(m => activeSet.has(m.toLowerCase()));
+                }
+            }
+        } catch (e) {
+            console.warn('[VendorDirect] filter fetch failed, showing all manufacturers:', e);
+        }
+
+        currentMfrList = vdList.sort();
 
         renderMfrDropdownOptions('');
         if (countEl) countEl.textContent = `(${currentMfrList.length})`;
