@@ -3596,6 +3596,20 @@ function handleLoadProducts() {
  * Look up manufacturers that have products matching the SKU pattern
  * @param {string} skuPattern - The SKU/part number pattern to search for
  */
+// Per-distributor table + columns to match a SKU pattern against, for the
+// "search by SKU before picking a manufacturer" flow below. Keep this in
+// sync with the search columns each search_<dist>_products RPC itself uses -
+// this used to be hardcoded to Ingram's table for every non-TD-Synnex
+// distributor, which silently broke SKU-first search for ADI/Almo/Vendor
+// Direct/Teledynamics (it was querying the wrong table entirely).
+const SKU_LOOKUP_TABLES = {
+    ingram: { table: 'zoho_ingram_products', columns: ['vendor_part_number', 'ingram_part_number'] },
+    adi: { table: 'adi_products', columns: ['item', 'product_code_mpn'] },
+    almo: { table: 'almo_products', columns: ['almo_sku', 'mpn'] },
+    vendordirect: { table: 'vendor_direct_products', columns: ['manufacturer_part_number', 'secondary_code'] },
+    teledynamics: { table: 'teledynamics_products', columns: ['teledynamics_pn'] }
+};
+
 async function lookupManufacturersFromSKU(skuPattern) {
     showStatus(`Searching for manufacturers with SKU matching "${skuPattern}"...`, 'loading');
     state.skuSearchMode = true;
@@ -3625,10 +3639,13 @@ async function lookupManufacturersFromSKU(skuPattern) {
             const data = await response.json();
             manufacturers = data || [];
 
-        } else {
-            // Ingram: Search Supabase DB by SKU pattern across all manufacturers
+        } else if (SKU_LOOKUP_TABLES[state.currentDistributor]) {
+            // Ingram / ADI / Almo / Vendor Direct / Teledynamics: search the
+            // correct distributor's table by SKU pattern across all manufacturers
+            const { table, columns } = SKU_LOOKUP_TABLES[state.currentDistributor];
             const encodedPattern = encodeURIComponent(`%${skuPattern}%`);
-            const url = `${SUPABASE_URL}/rest/v1/zoho_ingram_products?select=manufacturer&or=(vendor_part_number.ilike.${encodedPattern},ingram_part_number.ilike.${encodedPattern})&manufacturer=not.is.null&limit=200`;
+            const orClause = columns.map(c => `${c}.ilike.${encodedPattern}`).join(',');
+            const url = `${SUPABASE_URL}/rest/v1/${table}?select=manufacturer&or=(${orClause})&manufacturer=not.is.null&limit=200`;
             const response = await fetch(url, {
                 headers: {
                     'apikey': SUPABASE_ANON_KEY,
@@ -3649,6 +3666,8 @@ async function lookupManufacturersFromSKU(skuPattern) {
                     product_count: count
                 }));
             }
+        } else {
+            console.warn(`[SKU Search] No SKU lookup configured for distributor "${state.currentDistributor}"`);
         }
 
         if (manufacturers.length === 0) {
