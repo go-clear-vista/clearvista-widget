@@ -51,6 +51,11 @@ const DISTRIBUTORS = {
         name: 'Teledynamics',
         apiPrefix: null,
         color: '#14b8a6'
+    },
+    universal: {
+        name: 'Universal Search',
+        apiPrefix: null,
+        color: '#6366f1'
     }
 };
 
@@ -2386,9 +2391,7 @@ function handleDrop(e) {
         const newOrder = [];
         document.querySelectorAll('.queue-item').forEach(item => {
             const partNumber = item.dataset.partNumber;
-            const product = getActiveQueue().find(p =>
-                (p.ingramPartNumber || p.vendorPartNumber) === partNumber
-            );
+            const product = getActiveQueue().find(p => getProductKey(p) === partNumber);
             if (product) {
                 newOrder.push(product);
             }
@@ -2529,7 +2532,29 @@ function selectDistributor(distributor) {
     const cat3Field = document.getElementById('cat3FilterField');
     const skuTypeField = document.getElementById('skuTypeFilterField');
 
-    if (distributor === 'tdsynnex') {
+    // Restore the manufacturer selector by default - only Universal Search
+    // hides it (it has no manufacturer concept, it's SKU-only across all
+    // distributors at once).
+    const mfrRow = document.getElementById('mfrRow');
+    if (mfrRow) mfrRow.style.display = '';
+    const orDividerField = document.getElementById('orDivider');
+    if (orDividerField) orDividerField.style.display = '';
+    const skuSearchLabel = document.getElementById('skuSearchLabel');
+    if (skuSearchLabel) skuSearchLabel.innerHTML = '<span class="field-number">1</span>SKU / Part Number';
+
+    if (distributor === 'universal') {
+        // Universal Search: SKU-only, searches every distributor at once -
+        // no manufacturer selector, no category/subcategory/media filters.
+        if (cat3Field) cat3Field.style.display = 'none';
+        if (skuTypeField) skuTypeField.style.display = 'none';
+        const subCatFieldUniv = document.getElementById('subcategorySelect');
+        if (subCatFieldUniv) subCatFieldUniv.closest('.filter-field').style.display = 'none';
+        if (mfrRow) mfrRow.style.display = 'none';
+        if (orDividerField) orDividerField.style.display = 'none';
+        if (skuSearchLabel) skuSearchLabel.innerHTML = '<span class="field-number">1</span>Part Number (searches all distributors)';
+        const productsSectionUniv = document.getElementById('productsSection');
+        if (productsSectionUniv) productsSectionUniv.style.display = 'none';
+    } else if (distributor === 'tdsynnex') {
         // TD Synnex: Show cat3, hide SKU type
         // Restore subcategory filter (may have been hidden by ADI)
         const subCatFieldRestore = document.getElementById('subcategorySelect');
@@ -2593,6 +2618,8 @@ function selectDistributor(distributor) {
     resetFilters();
     if (state.searchMode === 'bulk') {
         showStatus(`Switched to ${DISTRIBUTORS[distributor].name}. Upload a distributor quote or paste SKUs to be parsed and loaded.`, 'info');
+    } else if (distributor === 'universal') {
+        showStatus('Enter a part number to search every distributor at once.', 'info');
     } else {
         showStatus(`Switched to ${DISTRIBUTORS[distributor].name}. Search by manufacturer or SKU.`, 'info');
     }
@@ -3580,7 +3607,13 @@ async function searchManufacturers() {
 function handleLoadProducts() {
     const skuValue = document.getElementById('skuSearch')?.value.trim() || '';
 
-    if (state.manufacturer) {
+    if (state.currentDistributor === 'universal') {
+        if (skuValue.length >= 2) {
+            handleUniversalSearch(skuValue);
+        } else {
+            showStatus('Enter at least 2 characters to search all distributors', 'error');
+        }
+    } else if (state.manufacturer) {
         // Manufacturer is selected - use normal flow
         loadProducts(1);
     } else if (skuValue.length >= 2) {
@@ -3602,13 +3635,125 @@ function handleLoadProducts() {
 // this used to be hardcoded to Ingram's table for every non-TD-Synnex
 // distributor, which silently broke SKU-first search for ADI/Almo/Vendor
 // Direct/Teledynamics (it was querying the wrong table entirely).
+// Note: also reused by Universal Search (searchAllDistributorsForSKU below)
+// to fan a single part-number query out across every distributor's table.
+// The tdsynnex entry here is inert for lookupManufacturersFromSKU (which
+// special-cases tdsynnex via RPC above) but is used by Universal Search.
 const SKU_LOOKUP_TABLES = {
     ingram: { table: 'zoho_ingram_products', columns: ['vendor_part_number', 'ingram_part_number'] },
+    tdsynnex: { table: 'zoho_tdsynnex_products', columns: ['manufacturer_part_number', 'td_synnex_sku'] },
     adi: { table: 'adi_products', columns: ['item', 'product_code_mpn'] },
     almo: { table: 'almo_products', columns: ['almo_sku', 'mpn'] },
     vendordirect: { table: 'vendor_direct_products', columns: ['manufacturer_part_number', 'secondary_code'] },
     teledynamics: { table: 'teledynamics_products', columns: ['teledynamics_pn'] }
 };
+
+// =====================================================
+// UNIVERSAL SEARCH (search every distributor by part number at once)
+// =====================================================
+
+const UNIVERSAL_SEARCH_ROWS_PER_DISTRIBUTOR = 25;
+
+// Ingram has no dedicated map<Distributor>Product function (its mapping is
+// inline inside loadProducts) - build the same shape here so Universal
+// Search results are consistent with every other distributor's.
+function mapIngramRowForUniversalSearch(row) {
+    return {
+        vendorPartNumber: row.vendor_part_number || '',
+        ingramPartNumber: row.ingram_part_number || '',
+        distributorPartNumber: row.ingram_part_number || '',
+        description: row.description_line_1 || '',
+        extraDescription: [row.description_line_1, row.description_line_2].filter(Boolean).join(' '),
+        vendorName: row.manufacturer || row.vendor_name || '',
+        category: row.level_1_name || '',
+        subCategory: row.level_2_name || '',
+        retailPrice: row.retail_price ? parseFloat(row.retail_price) : null,
+        pricingData: {
+            _dbSource: true,
+            pricing: {
+                retailPrice: row.retail_price ? parseFloat(row.retail_price) : null,
+                customerPrice: row.customer_price ? parseFloat(row.customer_price) : null
+            }
+        },
+        resellerPrice: row.customer_price ? parseFloat(row.customer_price) : null,
+        upcCode: row.upc_code || '',
+        productType: row.im_product_type || '',
+        _source: 'ingram',
+        _rawProduct: row
+    };
+}
+
+function mapUniversalRow(distributor, row) {
+    switch (distributor) {
+        case 'tdsynnex': return mapTDSynnexProduct(row);
+        case 'adi': return mapADIGlobalProduct(row);
+        case 'almo': return mapAlmoProduct(row);
+        case 'vendordirect': return mapVendorDirectProduct(row);
+        case 'teledynamics': return mapTeledynamicsProduct(row);
+        default: return mapIngramRowForUniversalSearch(row);
+    }
+}
+
+async function fetchUniversalDistributorRows(distributor, skuPattern) {
+    const cfg = SKU_LOOKUP_TABLES[distributor];
+    if (!cfg) return [];
+    const encodedPattern = encodeURIComponent(`%${skuPattern}%`);
+    const orClause = cfg.columns.map(c => `${c}.ilike.${encodedPattern}`).join(',');
+    const url = `${SUPABASE_URL}/rest/v1/${cfg.table}?select=*&or=(${orClause})&limit=${UNIVERSAL_SEARCH_ROWS_PER_DISTRIBUTOR}`;
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            }
+        });
+        if (!response.ok) {
+            console.error(`[Universal Search] ${distributor} query failed: ${response.status}`);
+            return [];
+        }
+        const rows = await response.json();
+        return Array.isArray(rows) ? rows : [];
+    } catch (err) {
+        console.error(`[Universal Search] ${distributor} query error:`, err);
+        return [];
+    }
+}
+
+/**
+ * Search every distributor's table at once for a part-number pattern and
+ * render the combined results through the existing products table/queue -
+ * displayProductsWithPricing, toggleProduct, addSelectedToQueue etc. are all
+ * already distributor-agnostic (keyed by getProductKey, not currentDistributor),
+ * so no separate results UI or queue path is needed for this mode.
+ */
+async function handleUniversalSearch(skuPattern) {
+    showStatus(`Searching all distributors for "${skuPattern}"...`, 'loading');
+
+    const distributors = Object.keys(SKU_LOOKUP_TABLES);
+    const perDistributor = await Promise.all(
+        distributors.map(async (dist) => {
+            const rows = await fetchUniversalDistributorRows(dist, skuPattern);
+            return rows.map(row => mapUniversalRow(dist, row));
+        })
+    );
+
+    const combined = perDistributor.flat();
+
+    state.totalRecords = combined.length;
+    state.totalPages = 1;
+    state.currentPage = 1;
+
+    const productsSection = document.getElementById('productsSection');
+    if (productsSection) productsSection.style.display = combined.length ? 'block' : 'none';
+
+    displayProductsWithPricing(combined, { page: 1, totalPages: 1 });
+
+    if (combined.length === 0) {
+        showStatus(`No matches found for "${skuPattern}" in any distributor.`, 'info');
+    } else {
+        showStatus(`Found ${combined.length} match(es) for "${skuPattern}" across ${distributors.length} distributors.`, 'success');
+    }
+}
 
 async function lookupManufacturersFromSKU(skuPattern) {
     showStatus(`Searching for manufacturers with SKU matching "${skuPattern}"...`, 'loading');
@@ -4467,6 +4612,18 @@ async function loadProducts(page = 1) {
     }
 }
 
+// Unique identity for a product across the whole app: distributor + part
+// number. Plain part number used to be the sole key everywhere (selection,
+// queue add/remove/qty/discount, drag-reorder) - harmless when only one
+// distributor's results are ever visible at once, but Universal Search can
+// legitimately show the same manufacturer part number from two different
+// distributors, which would otherwise collide (checking one row's box would
+// visually select both, and only one could ever be queued/edited/removed).
+function getProductKey(product) {
+    const pn = product.ingramPartNumber || product.vendorPartNumber || '';
+    return product._source ? `${product._source}::${pn}` : pn;
+}
+
 function displayProductsWithPricing(products, pagination) {
     const tbody = document.getElementById('productsBody');
     tbody.innerHTML = '';
@@ -4485,12 +4642,17 @@ function displayProductsWithPricing(products, pagination) {
         verifyIngramManufacturers(sortedProducts);
     }
 
+    // Universal Search spans multiple distributors in one table, so it's the
+    // only mode that needs a Distributor column - the other six tabs already
+    // tell you which distributor you're looking at via the active tab.
+    const isUniversal = state.currentDistributor === 'universal';
+    const vendorColHeader = document.getElementById('vendorColHeader');
+    if (vendorColHeader) vendorColHeader.style.display = isUniversal ? '' : 'none';
+
     sortedProducts.forEach((product, index) => {
-        const partNumber = product.ingramPartNumber || product.vendorPartNumber;
+        const partNumber = getProductKey(product);
         const isSelected = state.selectedProducts.has(partNumber);
-        const isQueued = state.queuedProducts.some(p =>
-            (p.ingramPartNumber || p.vendorPartNumber) === partNumber
-        );
+        const isQueued = state.queuedProducts.some(p => getProductKey(p) === partNumber);
 
         const pricingData = product.pricingData;
         const msrp = pricingData?.pricing?.retailPrice;
@@ -4508,7 +4670,10 @@ function displayProductsWithPricing(products, pagination) {
         tr.id = `product-row-${index}`;
 
         const fullDescription = product.description || '-';
-        // Simplified table: Checkbox, Part Number, Description (with hover tooltip), MSRP, Info
+        const vendorCell = isUniversal
+            ? `<td class="col-vendor"><span class="vendor-tag">${escapeHtml(DISTRIBUTORS[product._source]?.name || product._source || '-')}</span></td>`
+            : '';
+        // Simplified table: Checkbox, [Distributor], Part Number, Description (with hover tooltip), MSRP, Info
         tr.innerHTML = `
             <td class="col-checkbox">
                 <input type="checkbox"
@@ -4516,6 +4681,7 @@ function displayProductsWithPricing(products, pagination) {
                        ${isSelected ? 'checked' : ''}
                        ${isQueued ? 'disabled title="Already in queue"' : ''}>
             </td>
+            ${vendorCell}
             <td class="col-part"><strong>${product.vendorPartNumber || '-'}</strong></td>
             <td class="col-desc desc-cell" title="${fullDescription.replace(/"/g, '&quot;')}">${fullDescription}</td>
             <td class="col-price">${msrpDisplay}</td>
@@ -4567,7 +4733,7 @@ function toggleProduct(partNumber, isChecked) {
         const productData = row.dataset.product;
         if (productData) {
             const product = JSON.parse(productData);
-            const pn = product.ingramPartNumber || product.vendorPartNumber;
+            const pn = getProductKey(product);
 
             if (pn === partNumber) {
                 if (isChecked) {
@@ -4595,7 +4761,7 @@ function toggleSelectAll() {
 
         if (productData) {
             const product = JSON.parse(productData);
-            const partNumber = product.ingramPartNumber || product.vendorPartNumber;
+            const partNumber = getProductKey(product);
 
             if (selectAllChecked) {
                 state.selectedProducts.set(partNumber, product);
@@ -4679,10 +4845,8 @@ function addSelectedToQueue() {
 
     let addedCount = 0;
     selectedArray.forEach(product => {
-        const partNumber = product.ingramPartNumber || product.vendorPartNumber;
-        const alreadyQueued = state.queuedProducts.some(p =>
-            (p.ingramPartNumber || p.vendorPartNumber) === partNumber
-        );
+        const partNumber = getProductKey(product);
+        const alreadyQueued = state.queuedProducts.some(p => getProductKey(p) === partNumber);
 
         if (!alreadyQueued) {
             // Enrich product with pricing data if available
@@ -4724,9 +4888,7 @@ function addSelectedToQueue() {
 }
 
 function updateQueueItemQty(mpn, value) {
-    const product = getActiveQueue().find(p =>
-        (p.ingramPartNumber || p.vendorPartNumber) === mpn
-    );
+    const product = getActiveQueue().find(p => getProductKey(p) === mpn);
     if (!product) return;
     let qty = parseInt(value, 10);
     if (isNaN(qty) || qty < 1) qty = 1;
@@ -4736,9 +4898,7 @@ function updateQueueItemQty(mpn, value) {
 }
 
 function removeFromQueue(partNumber) {
-    setActiveQueue(getActiveQueue().filter(p =>
-        (p.ingramPartNumber || p.vendorPartNumber) !== partNumber
-    ));
+    setActiveQueue(getActiveQueue().filter(p => getProductKey(p) !== partNumber));
     updateQueueUI();
 
     // Re-enable checkbox in products table if visible
@@ -4747,7 +4907,7 @@ function removeFromQueue(partNumber) {
         const productData = row.dataset.product;
         if (productData) {
             const product = JSON.parse(productData);
-            const pn = product.ingramPartNumber || product.vendorPartNumber;
+            const pn = getProductKey(product);
             if (pn === partNumber) {
                 cb.disabled = false;
                 cb.title = '';
@@ -4896,7 +5056,7 @@ function renderQueueItems() {
 }
 
 function createQueueItemElement(product, index) {
-    const partNumber = product.ingramPartNumber || product.vendorPartNumber;
+    const partNumber = getProductKey(product);
     const msrp = product.pricingData?.pricing?.retailPrice || product.retailPrice || product.msrp;
     const resellerPrice = product.resellerPrice || product.pricingData?.pricing?.customerPrice || null;
     const displayPrice = (getActivePricingMode() === 'reseller' && resellerPrice !== null) ? resellerPrice : msrp;
@@ -5617,7 +5777,7 @@ function clampDiscount(val) {
 function updateQueueItemDiscount(mpn, inputEl) {
     var queue = getActiveQueue();
     var product = queue.find(function(p) {
-        return (p.ingramPartNumber || p.vendorPartNumber) === mpn;
+        return getProductKey(p) === mpn;
     });
     if (!product) return;
     if (inputEl.value === '') return;
@@ -5630,7 +5790,7 @@ function updateQueueItemDiscount(mpn, inputEl) {
 function finalizeQueueItemDiscount(mpn, inputEl) {
     var queue = getActiveQueue();
     var product = queue.find(function(p) {
-        return (p.ingramPartNumber || p.vendorPartNumber) === mpn;
+        return getProductKey(p) === mpn;
     });
     if (!product) return;
     product.customerDiscount = clampDiscount(inputEl.value);
@@ -5677,7 +5837,7 @@ function applyMfrDiscount(mfr) {
     document.querySelectorAll('.queue-item-discount').forEach(function(el) {
         var itemMpn = el.getAttribute('data-mpn');
         var product = queue.find(function(p) {
-            return (p.ingramPartNumber || p.vendorPartNumber) === itemMpn;
+            return getProductKey(p) === itemMpn;
         });
         if (product) {
             var pMfr = product.vendorName || product.manufacturer || 'Unknown';
@@ -6727,7 +6887,9 @@ function resetFilters() {
     const skuSearchRow = document.getElementById('skuSearchRow');
     if (skuSearch) {
         skuSearch.value = '';
-        skuSearch.placeholder = 'Enter partial or full SKU (e.g. AB123, XYZ-456)...';
+        skuSearch.placeholder = (state.currentDistributor === 'universal')
+            ? 'Enter a full or partial part number (e.g. AB123, XYZ-456)...'
+            : 'Enter partial or full SKU (e.g. AB123, XYZ-456)...';
     }
     if (skuSearchRow) {
         skuSearchRow.classList.remove('filter-mode');

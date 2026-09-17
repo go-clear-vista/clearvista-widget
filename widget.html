@@ -56,6 +56,9 @@
                     <button class="tab-btn" data-distributor="teledynamics" onclick="selectDistributor('teledynamics')">
                         <span class="tab-icon">TD</span>Teledynamics
                     </button>
+                    <button class="tab-btn" data-distributor="universal" onclick="selectDistributor('universal')">
+                        <span class="tab-icon tab-icon-wide">ALL</span>Universal Search
+                    </button>
                 </div>
             </div>
             <button class="admin-cog-btn" id="adminCogBtn" onclick="handleAdminCogClick()" title="">
@@ -331,7 +334,7 @@
                     <!-- Search Filters -->
                     <div class="search-panel">
                         <!-- Manufacturer Search - Single Row Combo -->
-                        <div class="filter-row mfr-row">
+                        <div class="filter-row mfr-row" id="mfrRow">
                             <label class="mfr-label">
                                 <span class="field-number">1</span>
                                 Manufacturer
@@ -504,6 +507,7 @@
                                 <thead>
                                     <tr>
                                         <th class="col-checkbox"></th>
+                                        <th class="col-vendor" id="vendorColHeader" style="display:none;">Distributor</th>
                                         <th class="col-part">Part Number</th>
                                         <th class="col-desc">Description</th>
                                         <th class="col-price">MSRP</th>
