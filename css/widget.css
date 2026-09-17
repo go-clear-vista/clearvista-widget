@@ -775,6 +775,15 @@ button svg {
     font-size: var(--font-size-xs);
 }
 
+/* Universal Search adds a Distributor column (checkbox, vendor, part, desc,
+   price, action) - the grid has no notion of <tr> boundaries (tbody/tr are
+   display:contents, see below), so every row MUST declare the same number
+   of columns as grid-template-columns or cells silently wrap into the next
+   row and every subsequent row shifts by one cell. */
+.data-table.has-vendor-col {
+    grid-template-columns: 26px auto auto 1fr auto 30px;
+}
+
 /* Make thead, tbody, tr transparent to grid */
 .data-table thead,
 .data-table tbody,

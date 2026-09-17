@@ -4648,6 +4648,11 @@ function displayProductsWithPricing(products, pagination) {
     const isUniversal = state.currentDistributor === 'universal';
     const vendorColHeader = document.getElementById('vendorColHeader');
     if (vendorColHeader) vendorColHeader.style.display = isUniversal ? '' : 'none';
+    // .data-table is CSS Grid (tbody/tr are display:contents) - the number of
+    // grid columns must match every row's cell count exactly, so the extra
+    // Distributor column needs its own grid-template-columns (has-vendor-col).
+    const dataTable = tbody.closest('table');
+    if (dataTable) dataTable.classList.toggle('has-vendor-col', isUniversal);
 
     sortedProducts.forEach((product, index) => {
         const partNumber = getProductKey(product);
