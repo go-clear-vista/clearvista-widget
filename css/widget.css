@@ -137,7 +137,7 @@ body {
    ===================================================== */
 .widget-header {
     display: grid;
-    grid-template-columns: 1fr 1fr auto auto;
+    grid-template-columns: auto 1fr auto auto;
     align-items: center;
     padding: 1px var(--space-4);
     background: var(--color-primary);
@@ -208,11 +208,32 @@ body {
     display: flex;
     align-items: center;
     gap: 30px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .distributor-tabs {
     display: flex;
     gap: var(--space-1);
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+    padding-bottom: 1px;
+}
+
+.distributor-tabs::-webkit-scrollbar {
+    height: 4px;
+}
+
+.distributor-tabs::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+}
+
+.distributor-tabs::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .widget-close-btn {
@@ -243,6 +264,8 @@ body {
     gap: 4px;
     padding: 4px var(--space-2);
     min-width: 120px;
+    flex-shrink: 0;
+    white-space: nowrap;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: var(--radius-sm);
