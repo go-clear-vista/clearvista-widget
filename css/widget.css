@@ -2947,6 +2947,23 @@ button svg {
     height: 10px;
 }
 
+.mfr-similar-hint {
+    margin-top: 4px;
+    font-size: var(--font-size-2xs);
+    color: var(--color-warning);
+    line-height: 1.4;
+}
+
+.mfr-similar-option {
+    text-decoration: underline;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.mfr-similar-option:hover {
+    color: var(--color-primary);
+}
+
 /* Panel Footer */
 .mfr-panel-footer {
     display: flex;

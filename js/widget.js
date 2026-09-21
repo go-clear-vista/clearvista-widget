@@ -5369,13 +5369,8 @@ function renderMfrResolutionTable() {
         console.log(`[MfrResolution] Row ${index}: name="${mfr.distributorName}", distributor="${mfr.distributor}"`);
 
         // Determine distributor label and class based on source
-        // mfr.distributor should be 'ingram' or 'tdsynnex'
-        const distributorLabel = mfr.distributor === 'ingram' ? 'INGRAM MICRO' :
-                                  mfr.distributor === 'tdsynnex' ? 'TD SYNNEX' :
-                                  'UNKNOWN';
-        const distributorClass = mfr.distributor === 'ingram' ? 'ingram' :
-                                  mfr.distributor === 'tdsynnex' ? 'tdsynnex' :
-                                  'unknown';
+        const distributorLabel = (DISTRIBUTORS[mfr.distributor]?.name || mfr.distributor || 'Unknown').toUpperCase();
+        const distributorClass = DISTRIBUTORS[mfr.distributor] ? mfr.distributor : 'unknown';
 
         // Add distributor group separator when distributor changes
         if (mfr.distributor !== currentDistributor) {
@@ -5429,6 +5424,7 @@ function renderMfrResolutionTable() {
                             </svg>
                         </span>
                     </div>
+                    <div id="mfr-similar-${index}" class="mfr-similar-hint" style="display:none;"></div>
                 </td>
             </tr>
         `;
@@ -5469,7 +5465,79 @@ function handleMfrInputChange(index) {
         if (status) status.classList.remove('show', 'valid');
     }
 
+    renderSimilarManufacturerHint(index, input.value);
     updateMfrResolutionStatus();
+}
+
+/**
+ * Strip everything but letters/digits and lowercase, for loose name comparison
+ */
+function normalizeForCompare(str) {
+    return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * First "word" of a name (splitting on space/comma/period/dash/parens), lowercased
+ */
+function firstNameWord(str) {
+    return (str || '').trim().toLowerCase().split(/[\s,.\-()]+/)[0] || '';
+}
+
+/**
+ * Find existing Zoho manufacturers that loosely match a typed "Create New" name,
+ * so a user typing "Sony" when "Sony Electronics Inc." already exists gets a nudge
+ * before creating a near-duplicate. Non-blocking — just a hint.
+ */
+function findSimilarManufacturers(typedName) {
+    const typed = (typedName || '').trim();
+    if (typed.length < 2) return [];
+    const typedLower = typed.toLowerCase();
+    const typedNorm = normalizeForCompare(typed);
+    const typedFirst = firstNameWord(typed);
+    if (!typedNorm) return [];
+
+    return (state.prefetchedManufacturers || []).filter(existing => {
+        const existingLower = existing.toLowerCase();
+        if (existingLower === typedLower) return false;
+        const existingNorm = normalizeForCompare(existing);
+        const existingFirst = firstNameWord(existing);
+        return existingNorm.startsWith(typedNorm) ||
+               typedNorm.startsWith(existingNorm) ||
+               (typedFirst.length >= 3 && typedFirst === existingFirst);
+    }).slice(0, 4);
+}
+
+/**
+ * Show/hide the "did you mean an existing manufacturer?" hint under the free-text input
+ */
+function renderSimilarManufacturerHint(index, typedName) {
+    const hint = document.getElementById(`mfr-similar-${index}`);
+    if (!hint) return;
+
+    const matches = findSimilarManufacturers(typedName);
+    if (matches.length === 0) {
+        hint.style.display = 'none';
+        hint.innerHTML = '';
+        return;
+    }
+
+    const links = matches.map(name => {
+        const esc = escapeHtml(name);
+        return `<span class="mfr-similar-option" onclick="useSimilarManufacturer(${index}, '${esc.replace(/'/g, "\\'")}')">${esc}</span>`;
+    }).join(', ');
+    hint.innerHTML = `Already in Zoho: ${links} — click to use instead of creating new`;
+    hint.style.display = '';
+}
+
+/**
+ * User clicked a suggested existing manufacturer from the similarity hint —
+ * treat it exactly like picking that name from the dropdown.
+ */
+function useSimilarManufacturer(index, value) {
+    resDropdownState = { open: false, prefix: 'mfr', index };
+    selectResDropdownOption(value);
+    const hint = document.getElementById(`mfr-similar-${index}`);
+    if (hint) { hint.style.display = 'none'; hint.innerHTML = ''; }
 }
 
 /**
