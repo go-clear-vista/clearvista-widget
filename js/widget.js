@@ -10612,8 +10612,8 @@ const ENG_QUOTE_MPN_COLUMNS = {
     vendordirect: ['manufacturer_part_number']
 };
 
-const ENG_QUOTE_BATCH_SIZE = 25;
-const engQuoteState = { items: [], fileName: '' };
+const ENG_QUOTE_BATCH_SIZE = 15;
+const engQuoteState = { items: [], fileName: '', rows: null, failedDistributors: [] };
 
 function engQuoteNormalizeMpn(value) {
     return String(value || '').trim().toUpperCase();
@@ -10724,6 +10724,7 @@ async function engQuoteLoadRows(rows, fileName) {
 
     engQuoteState.items = [...byMpn.values()];
     engQuoteState.fileName = fileName;
+    engQuoteState.rows = rows; // kept for Retry
     document.getElementById('engQuoteFileName').textContent = `${fileName} \u2014 looking up ${engQuoteState.items.length} parts\u2026`;
     document.getElementById('engQuoteClearBtn').style.display = '';
     const summaryEl = document.getElementById('engQuoteSummary');
@@ -10743,18 +10744,59 @@ async function engQuoteLoadRows(rows, fileName) {
     engQuoteRender();
 }
 
+// Normalized key used to match BOM parts to price sheet rows: uppercase,
+// letters and digits only ("FW-85BZ40L" and "FW85BZ40L" both -> "FW85BZ40L")
+function engQuoteMatchKey(value) {
+    return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Spellings to look up for one BOM part. Sheets differ on dashes and spaces,
+ * and BOMs sometimes list two codes in one cell ("M4250-26G4F-POE+ (GSM4230P)").
+ */
+function engQuoteMpnVariants(raw) {
+    const text = String(raw || '').trim();
+    const tokens = new Set([text]);
+    text.split(/[()\[\];,]|\s\/\s/).map(t => t.trim()).filter(t => t.length >= 3).forEach(t => tokens.add(t));
+    const variants = new Set();
+    tokens.forEach(t => {
+        const upper = t.toUpperCase();
+        variants.add(t);
+        variants.add(upper);
+        variants.add(upper.replace(/\s+/g, ''));
+        variants.add(upper.replace(/\s+/g, '-'));
+        variants.add(upper.replace(/[^A-Z0-9]/g, ''));
+    });
+    return [...variants].filter(v => v.length >= 3);
+}
+
 async function engQuoteLookupAll() {
-    const mpns = engQuoteState.items.map(i => i.mpn);
-    const itemsByMpn = new Map(engQuoteState.items.map(i => [i.mpn, i]));
+    const items = engQuoteState.items;
+    engQuoteState.failedDistributors = [];
+
+    // Every spelling of every part points back to its BOM item
+    const itemsByKey = new Map();
+    items.forEach(item => {
+        item.variants = engQuoteMpnVariants(item.mpn);
+        item.variants.forEach(v => {
+            const key = engQuoteMatchKey(v);
+            if (key && !itemsByKey.has(key)) itemsByKey.set(key, item);
+        });
+    });
 
     await Promise.all(ENG_QUOTE_DISTRIBUTORS.map(async dist => {
-        for (let i = 0; i < mpns.length; i += ENG_QUOTE_BATCH_SIZE) {
-            const chunk = mpns.slice(i, i + ENG_QUOTE_BATCH_SIZE);
-            const rows = await engQuoteFetchRows(dist, chunk);
+        for (let i = 0; i < items.length; i += ENG_QUOTE_BATCH_SIZE) {
+            const chunk = items.slice(i, i + ENG_QUOTE_BATCH_SIZE);
+            const values = [...new Set(chunk.flatMap(item => item.variants))];
+            const rows = await engQuoteFetchRows(dist, values);
+            if (rows === null) {
+                if (!engQuoteState.failedDistributors.includes(dist)) engQuoteState.failedDistributors.push(dist);
+                continue;
+            }
             rows.forEach(row => {
-                const rowMpns = new Set(ENG_QUOTE_MPN_COLUMNS[dist].map(c => engQuoteNormalizeMpn(row[c])));
-                rowMpns.forEach(rowMpn => {
-                    const item = itemsByMpn.get(rowMpn);
+                ENG_QUOTE_MPN_COLUMNS[dist].forEach(col => {
+                    const rowPart = row[col];
+                    const item = itemsByKey.get(engQuoteMatchKey(rowPart));
                     if (!item) return;
                     const product = mapUniversalRow(dist, row);
                     const current = item.matches[dist];
@@ -10763,6 +10805,9 @@ async function engQuoteLookupAll() {
                     if (!current || (!engQuoteMfrMatches(item.manufacturer, current.vendorName) &&
                                      engQuoteMfrMatches(item.manufacturer, product.vendorName))) {
                         item.matches[dist] = product;
+                        // Remember when the sheet spells the part differently
+                        item.matchedAs = item.matchedAs || {};
+                        item.matchedAs[dist] = engQuoteNormalizeMpn(rowPart) !== item.mpn ? String(rowPart) : null;
                     }
                 });
             });
@@ -10770,16 +10815,21 @@ async function engQuoteLookupAll() {
     }));
 }
 
-async function engQuoteFetchRows(dist, mpns) {
+/**
+ * Exact-match lookup (in.(...)) so Postgres can use the part number indexes.
+ * An ilike scan of the larger tables runs past the 3 s anon statement timeout.
+ * Returns the rows, or null when the request failed.
+ */
+async function engQuoteFetchRows(dist, values) {
     const table = SKU_LOOKUP_TABLES[dist]?.table;
-    if (!table) return [];
-    // Case-insensitive exact match: escape LIKE wildcards and quote each value
-    const quote = v => '"' + v.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&').replace(/"/g, '\\"') + '"';
-    const clauses = [];
-    ENG_QUOTE_MPN_COLUMNS[dist].forEach(col => {
-        mpns.forEach(mpn => clauses.push(`${col}.ilike.${quote(mpn)}`));
-    });
-    const url = `${SUPABASE_URL}/rest/v1/${table}?select=*&or=(${encodeURIComponent(clauses.join(','))})&limit=500`;
+    if (!table || !values.length) return [];
+    const quote = v => '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    const list = `(${values.map(quote).join(',')})`;
+    const cols = ENG_QUOTE_MPN_COLUMNS[dist];
+    const filter = cols.length === 1
+        ? `${cols[0]}=in.${encodeURIComponent(list)}`
+        : `or=(${encodeURIComponent(cols.map(c => `${c}.in.${list}`).join(','))})`;
+    const url = `${SUPABASE_URL}/rest/v1/${table}?select=*&${filter}&limit=1000`;
     try {
         const res = await fetch(url, {
             headers: {
@@ -10788,13 +10838,13 @@ async function engQuoteFetchRows(dist, mpns) {
             }
         });
         if (!res.ok) {
-            console.error(`[EngQuote] ${dist} lookup failed: ${res.status}`);
-            return [];
+            console.error(`[EngQuote] ${dist} lookup failed: ${res.status}`, await res.text().catch(() => ''));
+            return null;
         }
         return await res.json();
     } catch (err) {
         console.error(`[EngQuote] ${dist} lookup error:`, err);
-        return [];
+        return null;
     }
 }
 
@@ -10835,7 +10885,11 @@ function engQuoteRender() {
             ? `<select class="eng-quote-source" onchange="engQuoteSelectSource(${index}, this.value)">
                    ${options.map((o, i) => `<option value="${o.dist}"${o.dist === item.selected ? ' selected' : ''}>${escapeHtml(DISTRIBUTORS[o.dist]?.name || o.dist)} \u00b7 ${engQuoteFormatMoney(o.cost)}${i === 0 && options.length > 1 ? ' (lowest)' : ''}</option>`).join('')}
                </select>`
-            : '<span class="eng-quote-not-found">Not in any price sheet</span>';
+            : '<span class="eng-quote-not-found">Not found</span>';
+        const matchedAs = item.selected && item.matchedAs?.[item.selected];
+        const matchedNote = matchedAs
+            ? `<div class="eng-quote-matched-as" title="The price sheet lists this part as ${escapeHtml(matchedAs)}">matched as ${escapeHtml(matchedAs)}</div>`
+            : '';
         // Some sheets (e.g. Almo) store the part number as the product name
         const productDesc = product?.description && engQuoteNormalizeMpn(product.description) !== item.mpn
             ? product.description
@@ -10847,7 +10901,7 @@ function engQuoteRender() {
                 <td class="eng-col-part">${escapeHtml(item.mpn)}</td>
                 <td>${escapeHtml(item.manufacturer || product?.vendorName || '-')}</td>
                 <td class="eng-col-qty"><input type="number" class="eng-quote-qty" value="${item.qty}" min="1" max="9999" onchange="engQuoteSetQty(${index}, this.value)">${item.merged ? '<span class="eng-quote-merged" title="This part appeared more than once in the sheet; quantities were added together">merged</span>' : ''}</td>
-                <td class="eng-col-source">${select}</td>
+                <td class="eng-col-source">${select}${matchedNote}</td>
                 <td class="eng-col-desc" title="${escapeHtml(description)}">${escapeHtml(description || '-')}</td>
                 <td class="eng-col-price">${engQuoteFormatMoney(engQuoteCost(product))}</td>
                 <td class="eng-col-price">${engQuoteFormatMoney(engQuoteMsrp(product))}</td>
@@ -10861,10 +10915,103 @@ function engQuoteRender() {
     summaryEl.innerHTML = `<strong>${items.length}</strong> parts \u00b7 <span class="eng-quote-found">${foundCount} found</span>` +
         (missing ? ` \u00b7 <span class="eng-quote-missing">${missing} not found</span>` : '') +
         ' \u00b7 costs are from price sheets';
+    const failed = engQuoteState.failedDistributors || [];
+    if (failed.length) {
+        const names = failed.map(d => DISTRIBUTORS[d]?.name || d).join(', ');
+        summaryEl.innerHTML += `<div class="eng-quote-warning">Couldn't reach ${escapeHtml(names)}, so results may be incomplete. <a href="#" onclick="event.preventDefault(); engQuoteRetry();">Retry</a></div>`;
+    }
 
     document.getElementById('engQuoteTableWrap').style.display = '';
     document.getElementById('engQuoteActions').style.display = '';
+    engQuoteInitColumns();
     engQuoteUpdateSelection();
+}
+
+// ---- Column sizing: drag a header's right edge; double-click resets it ----
+const ENG_QUOTE_COL_DEFAULTS = { check: 32, part: 115, mfr: 105, qty: 70, source: 165, desc: 110, cost: 80, msrp: 80 };
+const ENG_QUOTE_COL_MIN = 50;
+const ENG_QUOTE_COL_STORAGE_KEY = 'cv.engQuoteColWidths';
+let engQuoteColWidths = null;
+let engQuoteColumnsReady = false;
+
+function engQuoteLoadColWidths() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(ENG_QUOTE_COL_STORAGE_KEY) || '{}') || {}; } catch (e) { saved = {}; }
+    engQuoteColWidths = { ...ENG_QUOTE_COL_DEFAULTS };
+    Object.keys(saved).forEach(k => {
+        if (k in engQuoteColWidths && Number(saved[k]) >= ENG_QUOTE_COL_MIN) engQuoteColWidths[k] = Number(saved[k]);
+    });
+    engQuoteColWidths._descAuto = !('desc' in saved);
+}
+
+function engQuoteSaveColWidths() {
+    const toSave = {};
+    Object.keys(ENG_QUOTE_COL_DEFAULTS).forEach(k => {
+        if (k === 'desc' && engQuoteColWidths._descAuto) return;
+        if (engQuoteColWidths[k] !== ENG_QUOTE_COL_DEFAULTS[k] || k === 'desc') toSave[k] = engQuoteColWidths[k];
+    });
+    try { localStorage.setItem(ENG_QUOTE_COL_STORAGE_KEY, JSON.stringify(toSave)); } catch (e) { /* storage unavailable */ }
+}
+
+// Apply widths; until the user sizes Description it absorbs the spare width
+function engQuoteApplyColWidths() {
+    const table = document.getElementById('engQuoteTable');
+    const wrap = document.getElementById('engQuoteTableWrap');
+    if (!table || !wrap || !engQuoteColWidths) return;
+    const widths = { ...engQuoteColWidths };
+    const others = Object.keys(ENG_QUOTE_COL_DEFAULTS).filter(k => k !== 'desc').reduce((sum, k) => sum + widths[k], 0);
+    if (widths._descAuto) {
+        const available = wrap.clientWidth - others - 2;
+        widths.desc = Math.max(ENG_QUOTE_COL_DEFAULTS.desc, available);
+    }
+    table.querySelectorAll('colgroup col').forEach(col => {
+        col.style.width = `${widths[col.dataset.col]}px`;
+    });
+    table.style.width = `${others + widths.desc}px`;
+}
+
+function engQuoteInitColumns() {
+    if (!engQuoteColWidths) engQuoteLoadColWidths();
+    engQuoteApplyColWidths();
+    if (engQuoteColumnsReady) return;
+    engQuoteColumnsReady = true;
+
+    document.querySelectorAll('#engQuoteTable th[data-col] .eng-col-resizer').forEach(handle => {
+        const key = handle.parentElement.dataset.col;
+        handle.addEventListener('mousedown', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            const startX = e.clientX;
+            const col = document.querySelector(`#engQuoteColgroup col[data-col="${key}"]`);
+            const startWidth = col ? col.getBoundingClientRect().width : engQuoteColWidths[key];
+            if (key === 'desc') engQuoteColWidths._descAuto = false;
+            document.body.classList.add('eng-col-resizing');
+            const onMove = ev => {
+                engQuoteColWidths[key] = Math.max(ENG_QUOTE_COL_MIN, Math.round(startWidth + ev.clientX - startX));
+                engQuoteApplyColWidths();
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                document.body.classList.remove('eng-col-resizing');
+                engQuoteSaveColWidths();
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+        handle.addEventListener('dblclick', e => {
+            e.stopPropagation();
+            engQuoteColWidths[key] = ENG_QUOTE_COL_DEFAULTS[key];
+            if (key === 'desc') engQuoteColWidths._descAuto = true;
+            engQuoteApplyColWidths();
+            engQuoteSaveColWidths();
+        });
+    });
+    window.addEventListener('resize', engQuoteApplyColWidths);
+}
+
+function engQuoteRetry() {
+    if (engQuoteState.rows) engQuoteLoadRows(engQuoteState.rows, engQuoteState.fileName);
 }
 
 function engQuoteUpdateSelection() {
@@ -10944,6 +11091,8 @@ function engQuoteAddToQueue() {
 function engQuoteClear() {
     engQuoteState.items = [];
     engQuoteState.fileName = '';
+    engQuoteState.rows = null;
+    engQuoteState.failedDistributors = [];
     document.getElementById('engQuoteBody').innerHTML = '';
     document.getElementById('engQuoteFileName').textContent = 'Sheet needs Part Number, Manufacturer and Qty columns';
     ['engQuoteSummary', 'engQuoteTableWrap', 'engQuoteActions', 'engQuoteClearBtn'].forEach(id => {

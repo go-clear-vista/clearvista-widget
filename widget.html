@@ -1024,17 +1024,27 @@
                             </div>
                             <div class="eng-quote-summary" id="engQuoteSummary" style="display:none;"></div>
                             <div class="eng-quote-table-wrap" id="engQuoteTableWrap" style="display:none;">
-                                <table class="eng-quote-table">
+                                <table class="eng-quote-table" id="engQuoteTable">
+                                    <colgroup id="engQuoteColgroup">
+                                        <col data-col="check">
+                                        <col data-col="part">
+                                        <col data-col="mfr">
+                                        <col data-col="qty">
+                                        <col data-col="source">
+                                        <col data-col="desc">
+                                        <col data-col="cost">
+                                        <col data-col="msrp">
+                                    </colgroup>
                                     <thead>
                                         <tr>
                                             <th class="eng-col-check"><input type="checkbox" id="engQuoteSelectAll" onchange="engQuoteToggleAll(this.checked)"></th>
-                                            <th>Part Number</th>
-                                            <th>Manufacturer</th>
-                                            <th class="eng-col-qty">Qty</th>
-                                            <th class="eng-col-source">Price From</th>
-                                            <th>Description</th>
-                                            <th class="eng-col-price">Cost</th>
-                                            <th class="eng-col-price">MSRP</th>
+                                            <th data-col="part">Part Number<span class="eng-col-resizer"></span></th>
+                                            <th data-col="mfr">Manufacturer<span class="eng-col-resizer"></span></th>
+                                            <th data-col="qty" class="eng-col-qty">Qty<span class="eng-col-resizer"></span></th>
+                                            <th data-col="source" class="eng-col-source">Price From<span class="eng-col-resizer"></span></th>
+                                            <th data-col="desc">Description<span class="eng-col-resizer"></span></th>
+                                            <th data-col="cost" class="eng-col-price">Cost<span class="eng-col-resizer"></span></th>
+                                            <th data-col="msrp" class="eng-col-price">MSRP<span class="eng-col-resizer"></span></th>
                                         </tr>
                                     </thead>
                                     <tbody id="engQuoteBody"></tbody>
