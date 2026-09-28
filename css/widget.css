@@ -1154,6 +1154,14 @@ button svg {
     background: var(--color-warning);
 }
 
+/* Last sync date shown under the Price Sheet badge */
+.price-sheet-date {
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-secondary);
+    font-style: italic;
+    margin: -2px 0 var(--space-1);
+}
+
 /* Arrow API loading indicator */
 .arrow-loading-indicator {
     display: inline-block;

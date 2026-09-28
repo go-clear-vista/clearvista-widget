@@ -3649,6 +3649,69 @@ const SKU_LOOKUP_TABLES = {
 };
 
 // =====================================================
+// PRICE SHEET SYNC DATE (shown under the "Price Sheet" badge in details)
+// =====================================================
+// Columns holding when a row was last imported from the price sheet, in
+// order of preference, plus the column that matches distributorPartNumber.
+const PRICE_SHEET_DATE_COLUMNS = {
+    ingram: { key: 'ingram_part_number', dates: ['updated_at'] },
+    tdsynnex: { key: 'td_synnex_sku', dates: ['last_updated'] },
+    adi: { key: 'item', dates: ['updated_at'] },
+    almo: { key: 'almo_sku', dates: ['almo_last_sync_date', 'updated_at'] },
+    vendordirect: { key: 'manufacturer_part_number', dates: ['updated_at'] },
+    teledynamics: { key: 'teledynamics_pn', dates: ['teledynamics_last_sync_date', 'updated_at'] }
+};
+
+/**
+ * Resolve the price sheet sync date for a product. Uses the search row when it
+ * already carries a date column, otherwise looks the row up in its table.
+ */
+async function fetchPriceSheetDate(product) {
+    const source = product._source || 'ingram';
+    const cfg = PRICE_SHEET_DATE_COLUMNS[source];
+    const table = SKU_LOOKUP_TABLES[source]?.table;
+    if (!cfg || !table) return null;
+
+    const raw = product._rawProduct || {};
+    for (const col of cfg.dates) {
+        if (raw[col]) return raw[col];
+    }
+
+    const keyValue = source === 'ingram' ? product.ingramPartNumber : product.distributorPartNumber;
+    if (!keyValue) return null;
+    const url = `${SUPABASE_URL}/rest/v1/${table}?select=${cfg.dates.join(',')}` +
+        `&${cfg.key}=eq.${encodeURIComponent(keyValue)}&order=${cfg.dates[cfg.dates.length - 1]}.desc.nullslast&limit=1`;
+    try {
+        const res = await fetch(url, {
+            headers: {
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            }
+        });
+        if (!res.ok) return null;
+        const rows = await res.json();
+        const row = rows?.[0] || {};
+        for (const col of cfg.dates) {
+            if (row[col]) return row[col];
+        }
+    } catch (err) {
+        console.error('[Details] Error fetching price sheet date:', err);
+    }
+    return null;
+}
+
+/**
+ * Format a price sheet date as "Sep 23, 2026". Date-only values (YYYY-MM-DD)
+ * are read as local dates so they don't shift a day across time zones.
+ */
+function formatPriceSheetDate(value) {
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+    const d = dateOnly ? new Date(`${value}T00:00:00`) : new Date(value);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// =====================================================
 // UNIVERSAL SEARCH (search every distributor by part number at once)
 // =====================================================
 
@@ -6366,6 +6429,11 @@ async function showProductDetails(productIndex) {
         if (el) el.innerHTML = '';
     });
     document.querySelectorAll('.price-source-slot').forEach(function(el) { el.innerHTML = ''; });
+    document.querySelectorAll('.price-sheet-date').forEach(function(el) {
+        el.textContent = '';
+        el.style.display = 'none';
+        delete el.dataset.requestKey;
+    });
     var discG = document.getElementById('discountsGroup');
     if (discG) discG.style.display = 'none';
     var whSec = document.getElementById('warehouseSection');
@@ -6403,12 +6471,30 @@ async function showProductDetails(productIndex) {
 
     // Price source badge: LIVE = pricing fetched from the distributor API,
     // Price Sheet = pricing from the Supabase price sheet tables
+    // Price Sheet also shows the last sync date underneath, once it resolves
     const setPriceSourceBadge = (isLive) => {
-        const slot = document.getElementById('pricingGrid')?.closest('.details-card')?.querySelector('.price-source-slot');
+        const card = document.getElementById('pricingGrid')?.closest('.details-card');
+        const slot = card?.querySelector('.price-source-slot');
+        const dateEl = card?.querySelector('.price-sheet-date');
         if (!slot) return;
         slot.innerHTML = isLive
             ? '<span class="price-source-live" title="Pricing captured live from the distributor API">LIVE</span>'
             : '<span class="price-source-sheet" title="Pricing pulled from the price sheet database">Price Sheet</span>';
+        if (!dateEl) return;
+        dateEl.textContent = '';
+        dateEl.style.display = 'none';
+        if (isLive) return;
+
+        const requestKey = `${product._source || 'ingram'}::${product.distributorPartNumber || product.ingramPartNumber || ''}`;
+        dateEl.dataset.requestKey = requestKey;
+        fetchPriceSheetDate(product).then(date => {
+            // Ignore if another product's details opened in the meantime
+            if (dateEl.dataset.requestKey !== requestKey) return;
+            const formatted = date ? formatPriceSheetDate(date) : null;
+            if (!formatted) return;
+            dateEl.textContent = `Last synced ${formatted}`;
+            dateEl.style.display = 'block';
+        });
     };
 
     const renderGrid = (elementId, fields) => {
