@@ -1876,6 +1876,79 @@ button svg {
     padding: var(--space-2);
 }
 
+/* Pre-close submit failures — shown instead of closing the widget */
+.submit-error-panel {
+    margin: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-radius: var(--radius-md);
+    color: #991b1b;
+    font-size: var(--font-size-xs);
+}
+
+.submit-error-title {
+    margin: 0 0 var(--space-1);
+    font-weight: 600;
+}
+
+.submit-error-list {
+    margin: 0 0 var(--space-2);
+    padding-left: var(--space-4);
+    max-height: 140px;
+    overflow-y: auto;
+    word-break: break-word;
+}
+
+.submit-error-list li {
+    margin-bottom: 2px;
+}
+
+.submit-error-actions,
+.restore-queue-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.submit-error-actions button,
+.restore-queue-actions button {
+    padding: 3px var(--space-2);
+    font-size: var(--font-size-2xs);
+}
+
+.submit-error-panel .btn-link,
+.restore-queue-banner .btn-link {
+    color: var(--color-text-secondary);
+}
+
+.submit-error-panel .btn-link:hover,
+.restore-queue-banner .btn-link:hover {
+    color: var(--color-text);
+}
+
+.queue-item.queue-item-error {
+    border-color: var(--color-error);
+    background: #fef2f2;
+}
+
+/* Recovery banner for the last submitted queue */
+.restore-queue-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: var(--radius-md);
+    color: #92400e;
+    font-size: var(--font-size-xs);
+}
+
 /* ============================================
    CUSTOMER DISCOUNT % — Queue Enhancement
    ============================================ */

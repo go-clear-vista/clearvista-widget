@@ -601,6 +601,14 @@
                             <p>No products queued</p>
                         </div>
 
+                        <div class="restore-queue-banner" id="restoreQueueBanner" style="display: none;">
+                            <span id="restoreQueueText"></span>
+                            <span class="restore-queue-actions">
+                                <button type="button" class="btn-success" onclick="restoreLastSubmission()">Restore</button>
+                                <button type="button" class="btn-link" onclick="discardLastSubmission()">Dismiss</button>
+                            </span>
+                        </div>
+
                         <div class="queue-list" id="queueList" style="display: none;">
                             <div class="queue-hint">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -622,8 +630,18 @@
                             </div>
                         </div>
 
+                        <div class="submit-error-panel" id="submitErrorPanel" style="display: none;" role="alert">
+                            <p class="submit-error-title" id="submitErrorTitle"></p>
+                            <ul class="submit-error-list" id="submitErrorList"></ul>
+                            <div class="submit-error-actions">
+                                <button type="button" id="submitErrorRetryBtn" class="btn-success" onclick="submitQueue()">Retry</button>
+                                <button type="button" id="submitErrorSendAnywayBtn" class="btn-secondary" title="Send the queue to the quote anyway; the Client Script will retry each product itself">Send anyway</button>
+                                <button type="button" class="btn-link" onclick="hideSubmitErrors()">Dismiss</button>
+                            </div>
+                        </div>
+
                         <div class="queue-footer" id="queueFooter" style="display: none;">
-                            <button onclick="submitQueue()" class="btn-success">
+                            <button onclick="submitQueue()" class="btn-success" id="submitQueueBtn">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M5 12h14M12 5l7 7-7 7"/>
                                 </svg>
