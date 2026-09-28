@@ -5823,14 +5823,17 @@ async function confirmMfrResolutions() {
             // Refresh manufacturer mappings reference panel so new mappings appear
             loadManufacturerMappings().then(() => renderMfrMappingsTable());
 
-            // Hide panel and resolve promise with the normalized map
+            // Hide panel and resolve promise with the normalized map.
+            // hideMfrResolutionPanel() clears state.mfrResolutionPromise, so
+            // keep a reference first - otherwise the waiting caller never continues.
+            const pending = state.mfrResolutionPromise;
             hideMfrResolutionPanel();
 
-            if (state.mfrResolutionPromise) {
-                state.mfrResolutionPromise.resolve(normalizedMap);
+            if (pending) {
+                pending.resolve(normalizedMap);
             }
 
-            showStatus(`Saved ${saveResult.saved_count} manufacturer mapping(s). Continuing submission...`, 'success');
+            showStatus(`Saved ${saveResult.saved_count} manufacturer mapping(s). Continuing...`, 'success');
         } else {
             throw new Error('Failed to save mappings');
         }
@@ -10614,7 +10617,14 @@ const ENG_QUOTE_MPN_COLUMNS = {
     adi: ['product_code_mpn', 'vendor_part_code'],
     almo: ['mpn', 'almo_sku'],
     teledynamics: ['mpn', 'teledynamics_pn'],
-    vendordirect: ['manufacturer_part_number']
+    vendordirect: ['manufacturer_part_number', 'secondary_code']
+};
+
+// Small tables are searched case-insensitively (ilike) on these columns, since
+// they hold mixed-case model names. Large tables stay on exact in.() matches,
+// which use the part number indexes (ilike there exceeds the 3 s timeout).
+const ENG_QUOTE_ILIKE_COLUMNS = {
+    vendordirect: ['secondary_code']
 };
 
 const ENG_QUOTE_BATCH_SIZE = 15;
@@ -10712,11 +10722,12 @@ async function engQuoteLoadRows(rows, fileName) {
         }
         byMpn.set(mpn, {
             mpn,
+            rawPart: String(row[cols.partCol]).trim(),
             manufacturer: cols.mfrCol !== -1 ? String(row[cols.mfrCol] || '').trim() : '',
             sheetDescription: cols.descCol !== -1 ? String(row[cols.descCol] || '').trim() : '',
             qty,
-            matches: {},      // distributor -> mapped product
-            selected: null,   // chosen distributor key
+            matches: {},      // option key -> mapped product (one per matching row)
+            selected: null,   // chosen option key
             include: false,
             merged: false
         });
@@ -10741,7 +10752,7 @@ async function engQuoteLoadRows(rows, fileName) {
     // Default each item to the lowest-cost distributor that carries it
     engQuoteState.items.forEach(item => {
         const options = engQuoteSortedOptions(item);
-        item.selected = options.length ? options[0].dist : null;
+        item.selected = options.length ? options[0].key : null;
         item.include = !!item.selected;
     });
 
@@ -10782,7 +10793,7 @@ async function engQuoteLookupAll() {
     // Every spelling of every part points back to its BOM item
     const itemsByKey = new Map();
     items.forEach(item => {
-        item.variants = engQuoteMpnVariants(item.mpn);
+        item.variants = engQuoteMpnVariants(item.rawPart || item.mpn);
         item.variants.forEach(v => {
             const key = engQuoteMatchKey(v);
             if (key && !itemsByKey.has(key)) itemsByKey.set(key, item);
@@ -10799,25 +10810,35 @@ async function engQuoteLookupAll() {
                 continue;
             }
             rows.forEach(row => {
+                const product = mapUniversalRow(dist, row);
+                const rowId = product.distributorPartNumber || product.vendorPartNumber || product.ingramPartNumber || '';
                 ENG_QUOTE_MPN_COLUMNS[dist].forEach(col => {
                     const rowPart = row[col];
                     const item = itemsByKey.get(engQuoteMatchKey(rowPart));
                     if (!item) return;
-                    const product = mapUniversalRow(dist, row);
-                    const current = item.matches[dist];
-                    // Several rows for one part (e.g. Vendor Direct manufacturers):
-                    // prefer the one whose manufacturer matches the BOM
-                    if (!current || (!engQuoteMfrMatches(item.manufacturer, current.vendorName) &&
-                                     engQuoteMfrMatches(item.manufacturer, product.vendorName))) {
-                        item.matches[dist] = product;
-                        // Remember when the sheet spells the part differently
-                        item.matchedAs = item.matchedAs || {};
-                        item.matchedAs[dist] = engQuoteNormalizeMpn(rowPart) !== item.mpn ? String(rowPart) : null;
-                    }
+                    const key = `${dist}::${rowId}`;
+                    if (item.matches[key]) return;
+                    item.matches[key] = product;
+                    // Note when the part number sent to Zoho differs from the BOM
+                    // (e.g. FW-85BZ40L -> FW85BZ40L, TLP Pro 725T -> 60-1562-12)
+                    item.matchedAs = item.matchedAs || {};
+                    const sheetPart = product.vendorPartNumber || String(rowPart);
+                    item.matchedAs[key] = engQuoteNormalizeMpn(sheetPart) !== item.mpn ? sheetPart : null;
                 });
             });
         }
     }));
+
+    items.forEach(item => {
+        if (!item.manufacturer) return;
+        ENG_QUOTE_DISTRIBUTORS.forEach(dist => {
+            const keys = Object.keys(item.matches).filter(k => k.startsWith(`${dist}::`));
+            const matching = keys.filter(k => engQuoteMfrMatches(item.manufacturer, item.matches[k].vendorName));
+            if (matching.length && matching.length < keys.length) {
+                keys.filter(k => !matching.includes(k)).forEach(k => delete item.matches[k]);
+            }
+        });
+    });
 }
 
 /**
@@ -10829,11 +10850,22 @@ async function engQuoteFetchRows(dist, values) {
     const table = SKU_LOOKUP_TABLES[dist]?.table;
     if (!table || !values.length) return [];
     const quote = v => '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    const likeQuote = v => quote(v.replace(/[%_\\]/g, '\\$&'));
     const list = `(${values.map(quote).join(',')})`;
-    const cols = ENG_QUOTE_MPN_COLUMNS[dist];
-    const filter = cols.length === 1
-        ? `${cols[0]}=in.${encodeURIComponent(list)}`
-        : `or=(${encodeURIComponent(cols.map(c => `${c}.in.${list}`).join(','))})`;
+    const ilikeCols = ENG_QUOTE_ILIKE_COLUMNS[dist] || [];
+    const clauses = [];
+    ENG_QUOTE_MPN_COLUMNS[dist].forEach(col => {
+        if (ilikeCols.includes(col)) {
+            // ilike is case-insensitive, so one spelling per case-folded value
+            const folded = [...new Set(values.map(v => v.toUpperCase()))];
+            folded.forEach(v => clauses.push(`${col}.ilike.${likeQuote(v)}`));
+        } else {
+            clauses.push(`${col}.in.${list}`);
+        }
+    });
+    const filter = clauses.length === 1 && !ilikeCols.length
+        ? `${ENG_QUOTE_MPN_COLUMNS[dist][0]}=in.${encodeURIComponent(list)}`
+        : `or=(${encodeURIComponent(clauses.join(','))})`;
     const url = `${SUPABASE_URL}/rest/v1/${table}?select=*&${filter}&limit=1000`;
     try {
         const res = await fetch(url, {
@@ -10865,10 +10897,17 @@ function engQuoteMsrp(product) {
 
 // Distributors carrying the item, cheapest first (no cost sorts last)
 function engQuoteSortedOptions(item) {
-    return ENG_QUOTE_DISTRIBUTORS
-        .filter(d => item.matches[d])
-        .map(d => ({ dist: d, product: item.matches[d], cost: engQuoteCost(item.matches[d]) }))
-        .sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity));
+    const keys = Object.keys(item.matches);
+    const perDist = {};
+    keys.forEach(k => { const d = k.split('::')[0]; perDist[d] = (perDist[d] || 0) + 1; });
+    return keys
+        .map(key => {
+            const dist = key.split('::')[0];
+            const product = item.matches[key];
+            return { key, dist, product, cost: engQuoteCost(product), partId: key.slice(dist.length + 2), multiple: perDist[dist] > 1 };
+        })
+        .sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity) ||
+            ENG_QUOTE_DISTRIBUTORS.indexOf(a.dist) - ENG_QUOTE_DISTRIBUTORS.indexOf(b.dist));
 }
 
 function engQuoteFormatMoney(v) {
@@ -10888,7 +10927,7 @@ function engQuoteRender() {
         const found = options.length > 0;
         const select = found
             ? `<select class="eng-quote-source" onchange="engQuoteSelectSource(${index}, this.value)">
-                   ${options.map((o, i) => `<option value="${o.dist}"${o.dist === item.selected ? ' selected' : ''}>${escapeHtml(DISTRIBUTORS[o.dist]?.name || o.dist)} \u00b7 ${engQuoteFormatMoney(o.cost)}${i === 0 && options.length > 1 ? ' (lowest)' : ''}</option>`).join('')}
+                   ${options.map((o, i) => `<option value="${escapeHtml(o.key)}"${o.key === item.selected ? ' selected' : ''} title="${escapeHtml(o.product.description || '')}">${escapeHtml(DISTRIBUTORS[o.dist]?.name || o.dist)}${o.multiple ? ` \u00b7 ${escapeHtml(o.partId)}` : ''} \u00b7 ${engQuoteFormatMoney(o.cost)}${i === 0 && options.length > 1 ? ' (lowest)' : ''}</option>`).join('')}
                </select>`
             : '<span class="eng-quote-not-found">Not found</span>';
         const matchedAs = item.selected && item.matchedAs?.[item.selected];
@@ -11036,10 +11075,10 @@ function engQuoteUpdateSelection() {
     if (addBtn) addBtn.disabled = chosen.length === 0;
 }
 
-function engQuoteSelectSource(index, dist) {
+function engQuoteSelectSource(index, key) {
     const item = engQuoteState.items[index];
-    if (!item || !item.matches[dist]) return;
-    item.selected = dist;
+    if (!item || !item.matches[key]) return;
+    item.selected = key;
     engQuoteRender();
 }
 
@@ -11063,18 +11102,16 @@ function engQuoteSetQty(index, value) {
     engQuoteUpdateSelection();
 }
 
-function engQuoteAddToQueue() {
+async function engQuoteAddToQueue() {
     const chosen = engQuoteState.items.filter(i => i.include && i.selected);
     if (!chosen.length) {
         showStatus('No items selected', 'error');
         return;
     }
 
-    const queue = getActiveQueue();
-    let added = 0, skipped = 0;
-    chosen.forEach(item => {
+    const products = chosen.map(item => {
         const matched = item.matches[item.selected];
-        const product = {
+        return {
             ...matched,
             // Fall back to the BOM's manufacturer if the price sheet row has none
             vendorName: matched.vendorName || item.manufacturer || '',
@@ -11082,23 +11119,69 @@ function engQuoteAddToQueue() {
             customerDiscount: 0,
             _fullyMapped: true
         };
-        const key = getProductKey(product);
-        if (queue.some(p => getProductKey(p) === key)) {
-            skipped++;
-            return;
-        }
-        queue.push(product);
-        added++;
     });
-    setActiveQueue(queue);
 
-    updateQueueUI();
-    updateFooterStats();
-    document.querySelector('.queue-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    showStatus(
-        `Added ${added} item${added !== 1 ? 's' : ''} to queue` + (skipped ? `, ${skipped} already queued` : ''),
-        added ? 'success' : 'info'
-    );
+    const noMfr = products.filter(p => !p.vendorName);
+    if (noMfr.length) {
+        showStatus(`Add a manufacturer in the BOM for: ${noMfr.map(p => p.vendorPartNumber).join(', ')}`, 'error');
+        return;
+    }
+
+    // Map each distributor's manufacturer name to a Zoho manufacturer now, so
+    // unmapped names are resolved here instead of blocking Add to Quote later.
+    // Saved mappings are reused when the queue is submitted.
+    const addBtn = document.getElementById('engQuoteAddBtn');
+    if (addBtn) addBtn.disabled = true;
+    try {
+        const unique = new Map();
+        products.forEach(p => {
+            const key = `${p._source}::${p.vendorName}`;
+            if (!unique.has(key)) unique.set(key, { name: p.vendorName, distributor: p._source });
+        });
+        showStatus('Checking manufacturer mappings...', 'loading');
+        let results = null;
+        try {
+            results = await checkManufacturerMappingsBatch([...unique.values()]);
+        } catch (err) {
+            // Don't block on a failed check - submission checks again
+            console.error('[EngQuote] Manufacturer check failed:', err);
+            showStatus('Couldn\'t check manufacturer mappings now; they\'ll be checked when the quote is submitted', 'info');
+        }
+        const unresolved = (results || [])
+            .filter(r => !r.found)
+            .map(r => ({ distributorName: r.distributor_name, distributor: r.distributor_source }));
+        if (unresolved.length) {
+            try {
+                await showMfrResolutionPanel(unresolved);
+            } catch (cancelled) {
+                showStatus('Add to Queue cancelled: manufacturers were not mapped', 'info');
+                return;
+            }
+        }
+
+        const queue = getActiveQueue();
+        let added = 0, skipped = 0;
+        products.forEach(product => {
+            const key = getProductKey(product);
+            if (queue.some(p => getProductKey(p) === key)) {
+                skipped++;
+                return;
+            }
+            queue.push(product);
+            added++;
+        });
+        setActiveQueue(queue);
+
+        updateQueueUI();
+        updateFooterStats();
+        document.querySelector('.queue-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        showStatus(
+            `Added ${added} item${added !== 1 ? 's' : ''} to queue` + (skipped ? `, ${skipped} already queued` : ''),
+            added ? 'success' : 'info'
+        );
+    } finally {
+        engQuoteUpdateSelection();
+    }
 }
 
 function engQuoteClear() {
