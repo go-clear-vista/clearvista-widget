@@ -7666,7 +7666,9 @@ function bulkHandleFileSelect(event) {
     reader.onload = function(e) {
         try {
             const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
+            // raw: keep CSV cells as typed, so part numbers like "02134-001"
+            // aren't turned into dates (only affects CSV/text files)
+            const workbook = XLSX.read(data, { type: 'array', raw: true });
 
             bulkState.workbook = workbook;
             bulkState.fileName = file.name;
@@ -10561,7 +10563,7 @@ function bulkUpdatePagination() {
 // =====================================================
 
 // Track collapsed state
-bulkState.collapsedSections = new Set();
+bulkState.collapsedSections = new Set(['engQuoteContent']);
 
 function bulkToggleSection(sectionId) {
     var header = document.querySelector('.bulk-collapsible-header[data-section="' + sectionId + '"]');
@@ -10587,6 +10589,386 @@ function bulkToggleSection(sectionId) {
         header.classList.add('bulk-section-collapsed');
         content.classList.add('bulk-section-hidden');
     }
+}
+
+// =====================================================
+// ENGINEERING QUOTES (BOM upload, per-item distributor choice)
+// =====================================================
+// Upload a bill of materials (Part Number / Manufacturer / Qty). Every part is
+// looked up in all six price sheets; each row gets a dropdown of the
+// distributors that carry it (defaulting to the lowest cost) and the chosen
+// items go to the Product Queue with their quantities. Queue items keep their
+// own _source, so one queue can mix distributors (as Universal Search does).
+
+const ENG_QUOTE_DISTRIBUTORS = ['ingram', 'tdsynnex', 'adi', 'almo', 'teledynamics', 'vendordirect'];
+
+// Columns holding the manufacturer part number in each price sheet table
+const ENG_QUOTE_MPN_COLUMNS = {
+    ingram: ['vendor_part_number'],
+    tdsynnex: ['manufacturer_part_number'],
+    adi: ['product_code_mpn', 'vendor_part_code'],
+    almo: ['mpn', 'almo_sku'],
+    teledynamics: ['mpn', 'teledynamics_pn'],
+    vendordirect: ['manufacturer_part_number']
+};
+
+const ENG_QUOTE_BATCH_SIZE = 25;
+const engQuoteState = { items: [], fileName: '' };
+
+function engQuoteNormalizeMpn(value) {
+    return String(value || '').trim().toUpperCase();
+}
+
+function engQuoteNormalizeMfr(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Loose manufacturer match: first word of one appears at the start of the other
+// ("Axis" ~ "AXIS COMMUNICATIONS", "Barco" ~ "BARCO INC.")
+function engQuoteMfrMatches(sheetMfr, rowMfr) {
+    const a = engQuoteNormalizeMfr(sheetMfr);
+    const b = engQuoteNormalizeMfr(rowMfr);
+    if (!a || !b) return false;
+    const aFirst = a.split(' ')[0];
+    const bFirst = b.split(' ')[0];
+    return b.startsWith(aFirst) || a.startsWith(bFirst);
+}
+
+/**
+ * Find the header row and the Part Number / Manufacturer / Qty columns.
+ * Returns { headerRow, partCol, mfrCol, qtyCol, descCol } or null.
+ */
+function engQuoteDetectColumns(rows) {
+    const partRe = /part\s*(number|no\.?|num|#)|\bmpn\b|mfg\.?\s*part|mfr\.?\s*part|manufacturer\s*part|\bmodel\b|\bsku\b/i;
+    const mfrRe = /manufacturer|\bmfr\b|\bmfg\b|\bbrand\b|\bmake\b/i;
+    const qtyRe = /\bqty\b|quantity/i;
+    const descRe = /description|\bdesc\b/i;
+
+    const scanLimit = Math.min(rows.length, 25);
+    for (let r = 0; r < scanLimit; r++) {
+        const row = rows[r] || [];
+        let partCol = -1, mfrCol = -1, qtyCol = -1, descCol = -1;
+        row.forEach((cell, c) => {
+            const text = String(cell || '').trim();
+            if (!text) return;
+            if (partCol === -1 && partRe.test(text)) partCol = c;
+            else if (mfrCol === -1 && mfrRe.test(text) && !partRe.test(text)) mfrCol = c;
+            else if (qtyCol === -1 && qtyRe.test(text)) qtyCol = c;
+            else if (descCol === -1 && descRe.test(text)) descCol = c;
+        });
+        if (partCol !== -1) return { headerRow: r, partCol, mfrCol, qtyCol, descCol };
+    }
+    return null;
+}
+
+function engQuoteHandleFile(event) {
+    const file = event.target.files ? event.target.files[0] : null;
+    event.target.value = ''; // allow re-uploading the same file
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            // raw: keep CSV cells as typed, so part numbers like "02134-001"
+            // aren't turned into dates (only affects CSV/text files)
+            const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array', raw: true });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+            engQuoteLoadRows(rows, file.name);
+        } catch (err) {
+            console.error('[EngQuote] Parse error:', err);
+            showStatus(`Couldn't read ${file.name}: ${err.message}`, 'error');
+        }
+    };
+    reader.onerror = function() { showStatus('Error reading file', 'error'); };
+    reader.readAsArrayBuffer(file);
+}
+
+async function engQuoteLoadRows(rows, fileName) {
+    const cols = engQuoteDetectColumns(rows);
+    if (!cols) {
+        showStatus('No Part Number column found. Use the template headers: Part Number, Manufacturer, Qty', 'error');
+        return;
+    }
+
+    // Build items, merging repeated part numbers (quantities are added together)
+    const byMpn = new Map();
+    for (let r = cols.headerRow + 1; r < rows.length; r++) {
+        const row = rows[r] || [];
+        const mpn = engQuoteNormalizeMpn(row[cols.partCol]);
+        if (!mpn) continue;
+        const parsedQty = cols.qtyCol !== -1 ? parseInt(String(row[cols.qtyCol]).replace(/,/g, ''), 10) : NaN;
+        const qty = !isNaN(parsedQty) && parsedQty >= 1 ? Math.min(parsedQty, 9999) : 1;
+        const existing = byMpn.get(mpn);
+        if (existing) {
+            existing.qty = Math.min(existing.qty + qty, 9999);
+            existing.merged = true;
+            continue;
+        }
+        byMpn.set(mpn, {
+            mpn,
+            manufacturer: cols.mfrCol !== -1 ? String(row[cols.mfrCol] || '').trim() : '',
+            sheetDescription: cols.descCol !== -1 ? String(row[cols.descCol] || '').trim() : '',
+            qty,
+            matches: {},      // distributor -> mapped product
+            selected: null,   // chosen distributor key
+            include: false,
+            merged: false
+        });
+    }
+
+    if (byMpn.size === 0) {
+        showStatus('No part numbers found under the Part Number column', 'error');
+        return;
+    }
+
+    engQuoteState.items = [...byMpn.values()];
+    engQuoteState.fileName = fileName;
+    document.getElementById('engQuoteFileName').textContent = `${fileName} \u2014 looking up ${engQuoteState.items.length} parts\u2026`;
+    document.getElementById('engQuoteClearBtn').style.display = '';
+    const summaryEl = document.getElementById('engQuoteSummary');
+    summaryEl.style.display = '';
+    summaryEl.textContent = 'Checking every distributor price sheet\u2026';
+
+    await engQuoteLookupAll();
+
+    // Default each item to the lowest-cost distributor that carries it
+    engQuoteState.items.forEach(item => {
+        const options = engQuoteSortedOptions(item);
+        item.selected = options.length ? options[0].dist : null;
+        item.include = !!item.selected;
+    });
+
+    document.getElementById('engQuoteFileName').textContent = fileName;
+    engQuoteRender();
+}
+
+async function engQuoteLookupAll() {
+    const mpns = engQuoteState.items.map(i => i.mpn);
+    const itemsByMpn = new Map(engQuoteState.items.map(i => [i.mpn, i]));
+
+    await Promise.all(ENG_QUOTE_DISTRIBUTORS.map(async dist => {
+        for (let i = 0; i < mpns.length; i += ENG_QUOTE_BATCH_SIZE) {
+            const chunk = mpns.slice(i, i + ENG_QUOTE_BATCH_SIZE);
+            const rows = await engQuoteFetchRows(dist, chunk);
+            rows.forEach(row => {
+                const rowMpns = new Set(ENG_QUOTE_MPN_COLUMNS[dist].map(c => engQuoteNormalizeMpn(row[c])));
+                rowMpns.forEach(rowMpn => {
+                    const item = itemsByMpn.get(rowMpn);
+                    if (!item) return;
+                    const product = mapUniversalRow(dist, row);
+                    const current = item.matches[dist];
+                    // Several rows for one part (e.g. Vendor Direct manufacturers):
+                    // prefer the one whose manufacturer matches the BOM
+                    if (!current || (!engQuoteMfrMatches(item.manufacturer, current.vendorName) &&
+                                     engQuoteMfrMatches(item.manufacturer, product.vendorName))) {
+                        item.matches[dist] = product;
+                    }
+                });
+            });
+        }
+    }));
+}
+
+async function engQuoteFetchRows(dist, mpns) {
+    const table = SKU_LOOKUP_TABLES[dist]?.table;
+    if (!table) return [];
+    // Case-insensitive exact match: escape LIKE wildcards and quote each value
+    const quote = v => '"' + v.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&').replace(/"/g, '\\"') + '"';
+    const clauses = [];
+    ENG_QUOTE_MPN_COLUMNS[dist].forEach(col => {
+        mpns.forEach(mpn => clauses.push(`${col}.ilike.${quote(mpn)}`));
+    });
+    const url = `${SUPABASE_URL}/rest/v1/${table}?select=*&or=(${encodeURIComponent(clauses.join(','))})&limit=500`;
+    try {
+        const res = await fetch(url, {
+            headers: {
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            }
+        });
+        if (!res.ok) {
+            console.error(`[EngQuote] ${dist} lookup failed: ${res.status}`);
+            return [];
+        }
+        return await res.json();
+    } catch (err) {
+        console.error(`[EngQuote] ${dist} lookup error:`, err);
+        return [];
+    }
+}
+
+function engQuoteCost(product) {
+    const v = product?.resellerPrice ?? product?.pricingData?.pricing?.customerPrice;
+    return v === null || v === undefined || isNaN(v) ? null : Number(v);
+}
+
+function engQuoteMsrp(product) {
+    const v = product?.pricingData?.pricing?.retailPrice ?? product?.retailPrice;
+    return v === null || v === undefined || isNaN(v) ? null : Number(v);
+}
+
+// Distributors carrying the item, cheapest first (no cost sorts last)
+function engQuoteSortedOptions(item) {
+    return ENG_QUOTE_DISTRIBUTORS
+        .filter(d => item.matches[d])
+        .map(d => ({ dist: d, product: item.matches[d], cost: engQuoteCost(item.matches[d]) }))
+        .sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity));
+}
+
+function engQuoteFormatMoney(v) {
+    return v === null || v === undefined
+        ? '-'
+        : `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function engQuoteRender() {
+    const body = document.getElementById('engQuoteBody');
+    if (!body) return;
+    const items = engQuoteState.items;
+
+    body.innerHTML = items.map((item, index) => {
+        const options = engQuoteSortedOptions(item);
+        const product = item.selected ? item.matches[item.selected] : null;
+        const found = options.length > 0;
+        const select = found
+            ? `<select class="eng-quote-source" onchange="engQuoteSelectSource(${index}, this.value)">
+                   ${options.map((o, i) => `<option value="${o.dist}"${o.dist === item.selected ? ' selected' : ''}>${escapeHtml(DISTRIBUTORS[o.dist]?.name || o.dist)} \u00b7 ${engQuoteFormatMoney(o.cost)}${i === 0 && options.length > 1 ? ' (lowest)' : ''}</option>`).join('')}
+               </select>`
+            : '<span class="eng-quote-not-found">Not in any price sheet</span>';
+        // Some sheets (e.g. Almo) store the part number as the product name
+        const productDesc = product?.description && engQuoteNormalizeMpn(product.description) !== item.mpn
+            ? product.description
+            : product?.extraDescription;
+        const description = productDesc || item.sheetDescription || '';
+        return `
+            <tr class="${found ? '' : 'eng-quote-row-missing'}">
+                <td class="eng-col-check"><input type="checkbox" ${item.include ? 'checked' : ''} ${found ? '' : 'disabled'} onchange="engQuoteToggleItem(${index}, this.checked)"></td>
+                <td class="eng-col-part">${escapeHtml(item.mpn)}</td>
+                <td>${escapeHtml(item.manufacturer || product?.vendorName || '-')}</td>
+                <td class="eng-col-qty"><input type="number" class="eng-quote-qty" value="${item.qty}" min="1" max="9999" onchange="engQuoteSetQty(${index}, this.value)">${item.merged ? '<span class="eng-quote-merged" title="This part appeared more than once in the sheet; quantities were added together">merged</span>' : ''}</td>
+                <td class="eng-col-source">${select}</td>
+                <td class="eng-col-desc" title="${escapeHtml(description)}">${escapeHtml(description || '-')}</td>
+                <td class="eng-col-price">${engQuoteFormatMoney(engQuoteCost(product))}</td>
+                <td class="eng-col-price">${engQuoteFormatMoney(engQuoteMsrp(product))}</td>
+            </tr>`;
+    }).join('');
+
+    const foundCount = items.filter(i => engQuoteSortedOptions(i).length).length;
+    const missing = items.length - foundCount;
+    const summaryEl = document.getElementById('engQuoteSummary');
+    summaryEl.style.display = '';
+    summaryEl.innerHTML = `<strong>${items.length}</strong> parts \u00b7 <span class="eng-quote-found">${foundCount} found</span>` +
+        (missing ? ` \u00b7 <span class="eng-quote-missing">${missing} not found</span>` : '') +
+        ' \u00b7 costs are from price sheets';
+
+    document.getElementById('engQuoteTableWrap').style.display = '';
+    document.getElementById('engQuoteActions').style.display = '';
+    engQuoteUpdateSelection();
+}
+
+function engQuoteUpdateSelection() {
+    const items = engQuoteState.items;
+    const selectable = items.filter(i => i.selected);
+    const chosen = selectable.filter(i => i.include);
+    const total = chosen.reduce((sum, i) => sum + (engQuoteCost(i.matches[i.selected]) || 0) * i.qty, 0);
+
+    const selectAll = document.getElementById('engQuoteSelectAll');
+    if (selectAll) {
+        selectAll.checked = chosen.length > 0 && chosen.length === selectable.length;
+        selectAll.indeterminate = chosen.length > 0 && chosen.length < selectable.length;
+    }
+    const totalEl = document.getElementById('engQuoteSelectedTotal');
+    if (totalEl) totalEl.textContent = `${chosen.length} selected \u00b7 ${engQuoteFormatMoney(total)} total cost`;
+    const addBtn = document.getElementById('engQuoteAddBtn');
+    if (addBtn) addBtn.disabled = chosen.length === 0;
+}
+
+function engQuoteSelectSource(index, dist) {
+    const item = engQuoteState.items[index];
+    if (!item || !item.matches[dist]) return;
+    item.selected = dist;
+    engQuoteRender();
+}
+
+function engQuoteToggleItem(index, checked) {
+    const item = engQuoteState.items[index];
+    if (!item) return;
+    item.include = checked && !!item.selected;
+    engQuoteUpdateSelection();
+}
+
+function engQuoteToggleAll(checked) {
+    engQuoteState.items.forEach(item => { item.include = checked && !!item.selected; });
+    engQuoteRender();
+}
+
+function engQuoteSetQty(index, value) {
+    const item = engQuoteState.items[index];
+    if (!item) return;
+    const qty = parseInt(value, 10);
+    item.qty = !isNaN(qty) && qty >= 1 ? Math.min(qty, 9999) : 1;
+    engQuoteUpdateSelection();
+}
+
+function engQuoteAddToQueue() {
+    const chosen = engQuoteState.items.filter(i => i.include && i.selected);
+    if (!chosen.length) {
+        showStatus('No items selected', 'error');
+        return;
+    }
+
+    const queue = getActiveQueue();
+    let added = 0, skipped = 0;
+    chosen.forEach(item => {
+        const product = { ...item.matches[item.selected], qty: item.qty, customerDiscount: 0 };
+        const key = getProductKey(product);
+        if (queue.some(p => getProductKey(p) === key)) {
+            skipped++;
+            return;
+        }
+        queue.push(product);
+        added++;
+    });
+    setActiveQueue(queue);
+
+    updateQueueUI();
+    updateFooterStats();
+    document.querySelector('.queue-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showStatus(
+        `Added ${added} item${added !== 1 ? 's' : ''} to queue` + (skipped ? `, ${skipped} already queued` : ''),
+        added ? 'success' : 'info'
+    );
+}
+
+function engQuoteClear() {
+    engQuoteState.items = [];
+    engQuoteState.fileName = '';
+    document.getElementById('engQuoteBody').innerHTML = '';
+    document.getElementById('engQuoteFileName').textContent = 'Sheet needs Part Number, Manufacturer and Qty columns';
+    ['engQuoteSummary', 'engQuoteTableWrap', 'engQuoteActions', 'engQuoteClearBtn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+}
+
+function engQuoteDownloadTemplate() {
+    const csv = [
+        'Part Number,Manufacturer,Qty,Description',
+        '02134-001,Axis,4,M2036-LE Bullet Camera',
+        '02621-001,Axis,1,D8208-R Industrial PoE++ Switch',
+        'R8787713K,Barco,2,ClickShare Bar Front Cover',
+        'AVC-EW-E92,Avocor,1,Extended Warranty'
+    ].join('\r\n') + '\r\n';
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'engineering-quote-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // =====================================================

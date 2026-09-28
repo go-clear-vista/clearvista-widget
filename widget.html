@@ -998,6 +998,54 @@
                             </div>
                         </div>
 
+                        <!-- Engineering Quotes: BOM upload with per-item distributor choice -->
+                        <div class="bulk-collapsible-header bulk-section-collapsed" data-section="engQuoteContent" onclick="bulkToggleSection('engQuoteContent')">
+                            <svg class="bulk-collapse-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4,2 8,6 4,10"/></svg>
+                            <span>Engineering Quotes</span>
+                        </div>
+                        <div class="bulk-section-content bulk-section-hidden eng-quote-section" id="engQuoteContent">
+                            <div class="eng-quote-toolbar">
+                                <div class="eng-quote-upload">
+                                    <button class="mfr-btn mfr-btn-primary" onclick="document.getElementById('engQuoteFileInput').click()">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                            <polyline points="17 8 12 3 7 8"/>
+                                            <line x1="12" y1="3" x2="12" y2="15"/>
+                                        </svg>
+                                        Upload BOM
+                                    </button>
+                                    <input type="file" id="engQuoteFileInput" class="file-input-hidden" accept=".xlsx,.xls,.csv" onchange="engQuoteHandleFile(event)">
+                                    <span class="eng-quote-file-name" id="engQuoteFileName">Sheet needs Part Number, Manufacturer and Qty columns</span>
+                                </div>
+                                <div class="eng-quote-toolbar-right">
+                                    <a href="#" class="eng-quote-template-link" onclick="event.preventDefault(); engQuoteDownloadTemplate();">Download template</a>
+                                    <button class="mfr-btn" id="engQuoteClearBtn" onclick="engQuoteClear()" style="display:none;">Clear</button>
+                                </div>
+                            </div>
+                            <div class="eng-quote-summary" id="engQuoteSummary" style="display:none;"></div>
+                            <div class="eng-quote-table-wrap" id="engQuoteTableWrap" style="display:none;">
+                                <table class="eng-quote-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="eng-col-check"><input type="checkbox" id="engQuoteSelectAll" onchange="engQuoteToggleAll(this.checked)"></th>
+                                            <th>Part Number</th>
+                                            <th>Manufacturer</th>
+                                            <th class="eng-col-qty">Qty</th>
+                                            <th class="eng-col-source">Price From</th>
+                                            <th>Description</th>
+                                            <th class="eng-col-price">Cost</th>
+                                            <th class="eng-col-price">MSRP</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="engQuoteBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="eng-quote-actions" id="engQuoteActions" style="display:none;">
+                                <span class="eng-quote-selected-total" id="engQuoteSelectedTotal"></span>
+                                <button class="mfr-btn mfr-btn-primary" id="engQuoteAddBtn" onclick="engQuoteAddToQueue()">+ Add to Queue</button>
+                            </div>
+                        </div>
+
                         <!-- Column Mapping Rules Editor (Phase 9.2 Step 7) -->
                         <div id="bulkMappingRulesPanel" class="mfr-mappings-panel" style="display: none;">
                             <!-- Header -->

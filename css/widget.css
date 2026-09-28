@@ -7897,3 +7897,187 @@ button.sel-btn .sel-btn-icon {
     position: fixed;
     z-index: 10000;
 }
+
+/* =====================================================
+   BULK — ENGINEERING QUOTES
+   ===================================================== */
+.eng-quote-section {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    padding: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.eng-quote-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.eng-quote-upload,
+.eng-quote-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.eng-quote-file-name {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+}
+
+.eng-quote-template-link {
+    font-size: var(--font-size-xs);
+    color: var(--color-accent);
+    text-decoration: none;
+}
+
+.eng-quote-template-link:hover {
+    text-decoration: underline;
+}
+
+.eng-quote-summary {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    margin-top: var(--space-2);
+}
+
+.eng-quote-found {
+    color: var(--color-success);
+    font-weight: 600;
+}
+
+.eng-quote-missing {
+    color: var(--color-error);
+    font-weight: 600;
+}
+
+.eng-quote-table-wrap {
+    margin-top: var(--space-2);
+    max-height: 420px;
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.eng-quote-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-xs);
+}
+
+.eng-quote-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+    text-align: left;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: var(--font-size-2xs);
+    letter-spacing: 0.4px;
+    padding: 6px 8px;
+    white-space: nowrap;
+}
+
+.eng-quote-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--color-border-light);
+    color: var(--color-text);
+    vertical-align: middle;
+}
+
+.eng-quote-table tbody tr:hover {
+    background: var(--color-bg);
+}
+
+.eng-col-check {
+    width: 28px;
+    text-align: center;
+}
+
+.eng-col-part {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.eng-col-qty {
+    width: 90px;
+    white-space: nowrap;
+}
+
+.eng-col-source {
+    width: 270px;
+}
+
+.eng-col-desc {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+}
+
+.eng-col-price {
+    width: 90px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.eng-quote-table td.eng-col-price {
+    color: var(--color-success);
+    font-weight: 600;
+}
+
+.eng-quote-qty {
+    width: 56px;
+    padding: 2px 4px;
+    font-size: var(--font-size-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.eng-quote-merged {
+    margin-left: 4px;
+    font-size: var(--font-size-3xs);
+    color: var(--color-warning);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.eng-quote-source {
+    width: 100%;
+    padding: 3px 4px;
+    font-size: var(--font-size-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.eng-quote-not-found {
+    color: var(--color-error);
+    font-size: var(--font-size-2xs);
+    font-weight: 600;
+}
+
+.eng-quote-row-missing td {
+    color: var(--color-text-muted);
+}
+
+.eng-quote-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+}
+
+.eng-quote-selected-total {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+}
