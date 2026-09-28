@@ -6400,6 +6400,11 @@ async function showProductDetails(productIndex) {
         return `$${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
+    // Pricing source tag: LIVE = fetched from distributor API, Price Sheet = Supabase price sheet
+    const priceSourceBadge = (isLive) => isLive
+        ? '<span class="price-source-badge price-source-live" title="Pricing retrieved live from the distributor API">LIVE</span>'
+        : '<span class="price-source-badge price-source-sheet" title="Pricing pulled from the price sheet database">Price Sheet</span>';
+
     const renderGrid = (elementId, fields) => {
         const grid = document.getElementById(elementId);
         if (grid) {
@@ -6458,7 +6463,7 @@ async function showProductDetails(productIndex) {
 
         // Header - Product Name (from part_description)
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'}
+            <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(false)}
         `;
 
         // Header - TD Synnex SKU (Field 5), Vendor Part (manufacturer_part_number), Manufacturer, Authorized
@@ -6626,9 +6631,12 @@ async function showProductDetails(productIndex) {
         const authorizedText = isAuthorized ? 'Yes' : 'No';
         const authorizedClass = isAuthorized ? 'authorized-yes' : 'authorized-no';
 
+        // Live API price if available, else fall back to DB price sheet
+        const adiLivePrice = adiItemData?.ItemPrice ? parseFloat(adiItemData.ItemPrice) : null;
+
         // Header - Product Name
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'}
+            <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(!!adiLivePrice)}
         `;
 
         // Header - ADI SKU, Vendor Part, Manufacturer, Authorized
@@ -6658,7 +6666,6 @@ async function showProductDetails(productIndex) {
         renderGrid('productInfoGrid', productInfoFields);
 
         // Pricing Grid - ADI: use live API price if available, fall back to DB
-        const adiLivePrice = adiItemData?.ItemPrice ? parseFloat(adiItemData.ItemPrice) : null;
         const adiMsrp = product.pricingData?.pricing?.retailPrice;
         const adiCustomerPrice = adiLivePrice || product.pricingData?.pricing?.customerPrice;
         const pricingFields = [
@@ -6737,6 +6744,12 @@ async function showProductDetails(productIndex) {
         await Promise.all(fetchPromises);
     }
 
+    // Live API pricing when the Ingram call succeeded; otherwise fall back to the DB price sheet
+    const pricingIsLive = !!pricingData && !pricingData._dbSource;
+    if (!pricingIsLive && product.pricingData) {
+        pricingData = product.pricingData;
+    }
+
     const fullProductData = { ...product, pricingData, productDetails };
 
     const isAuthorized = product.authorizedToPurchase === 'true' ||
@@ -6747,7 +6760,7 @@ async function showProductDetails(productIndex) {
 
     // Row 1: Product Name
     document.getElementById('detailsProductName').innerHTML = `
-        <strong>Product Name:</strong> ${product.description || 'N/A'}
+        <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(pricingIsLive)}
     `;
     // Row 2: Ingram SKU, Vendor Part, Manufacturer, Authorized
     document.getElementById('detailsSubtitle').innerHTML = `
