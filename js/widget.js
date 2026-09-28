@@ -6365,6 +6365,7 @@ async function showProductDetails(productIndex) {
         var el = document.getElementById(id);
         if (el) el.innerHTML = '';
     });
+    document.querySelectorAll('.price-source-slot').forEach(function(el) { el.innerHTML = ''; });
     var discG = document.getElementById('discountsGroup');
     if (discG) discG.style.display = 'none';
     var whSec = document.getElementById('warehouseSection');
@@ -6402,9 +6403,13 @@ async function showProductDetails(productIndex) {
 
     // Price source badge: LIVE = pricing fetched from the distributor API,
     // Price Sheet = pricing from the Supabase price sheet tables
-    const priceSourceBadge = (isLive) => isLive
-        ? '<span class="price-source-live" title="Pricing captured live from the distributor API">LIVE</span>'
-        : '<span class="price-source-sheet" title="Pricing pulled from the price sheet database">Price Sheet</span>';
+    const setPriceSourceBadge = (isLive) => {
+        const slot = document.getElementById('pricingGrid')?.closest('.details-card')?.querySelector('.price-source-slot');
+        if (!slot) return;
+        slot.innerHTML = isLive
+            ? '<span class="price-source-live" title="Pricing captured live from the distributor API">LIVE</span>'
+            : '<span class="price-source-sheet" title="Pricing pulled from the price sheet database">Price Sheet</span>';
+    };
 
     const renderGrid = (elementId, fields) => {
         const grid = document.getElementById(elementId);
@@ -6463,9 +6468,8 @@ async function showProductDetails(productIndex) {
         const authorizedClass = isNotAuthorized ? 'authorized-no' : 'authorized-yes';
 
         // Header - Product Name (from part_description)
-        // Pricing always comes from the flat-file DB — the warehouse API returns availability only
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(false)}
+            <strong>Product Name:</strong> ${product.description || 'N/A'}
         `;
 
         // Header - TD Synnex SKU (Field 5), Vendor Part (manufacturer_part_number), Manufacturer, Authorized
@@ -6500,6 +6504,9 @@ async function showProductDetails(productIndex) {
             { label: 'Replacement SKU', value: product.replacementSku || '-' }
         ];
         renderGrid('productInfoGrid', productInfoFields);
+
+        // Pricing always comes from the flat-file DB — the warehouse API returns availability only
+        setPriceSourceBadge(false);
 
         // Pricing Grid - TD SYNNEX: MSRP from msrp, Customer Price from contract_price
         // Using pricingData.pricing which is set in mapTDSynnexProduct from raw fields
@@ -6633,10 +6640,9 @@ async function showProductDetails(productIndex) {
         const authorizedText = isAuthorized ? 'Yes' : 'No';
         const authorizedClass = isAuthorized ? 'authorized-yes' : 'authorized-no';
 
-        // Header - Product Name (LIVE when the API returned a price, else DB price sheet)
-        const adiHasLivePrice = !!(adiItemData?.ItemPrice && parseFloat(adiItemData.ItemPrice));
+        // Header - Product Name
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(adiHasLivePrice)}
+            <strong>Product Name:</strong> ${product.description || 'N/A'}
         `;
 
         // Header - ADI SKU, Vendor Part, Manufacturer, Authorized
@@ -6674,6 +6680,7 @@ async function showProductDetails(productIndex) {
             { label: 'Customer Price', value: formatCurrency(adiCustomerPrice) }
         ];
         renderGrid('pricingGrid', pricingFields);
+        setPriceSourceBadge(!!adiLivePrice);
 
         // Availability from API — NationalInventory is a string number
         const nationalInventoryStr = adiItemData?.NationalInventory;
@@ -6759,9 +6766,9 @@ async function showProductDetails(productIndex) {
     const authorizedText = isAuthorized ? 'Yes' : 'No';
     const authorizedClass = isAuthorized ? 'authorized-yes' : 'authorized-no';
 
-    // Row 1: Product Name + price source badge
+    // Row 1: Product Name
     document.getElementById('detailsProductName').innerHTML = `
-        <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(hasLivePricing)}
+        <strong>Product Name:</strong> ${product.description || 'N/A'}
     `;
     // Row 2: Ingram SKU, Vendor Part, Manufacturer, Authorized
     document.getElementById('detailsSubtitle').innerHTML = `
@@ -6817,6 +6824,7 @@ async function showProductDetails(productIndex) {
         { label: 'Regular Price', value: formatCurrency(regularPrice) }
     ];
     renderGrid('pricingGrid', pricingFields);
+    setPriceSourceBadge(hasLivePricing);
 
     // Ingram discounts
     const discountsGroup = document.getElementById('discountsGroup');

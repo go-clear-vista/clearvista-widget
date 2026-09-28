@@ -1130,7 +1130,7 @@ button svg {
     font-size: var(--font-size-2xs);
 }
 
-/* Price Source Badges (next to Product Name in details) */
+/* Price Source Badges (Pricing card header in details) */
 .price-source-live,
 .price-source-sheet {
     display: inline-block;
@@ -1139,9 +1139,11 @@ button svg {
     border-radius: var(--radius-sm);
     font-weight: 600;
     font-size: var(--font-size-2xs);
-    margin-left: var(--space-2);
+    margin-left: var(--space-1);
     vertical-align: middle;
     white-space: nowrap;
+    text-transform: none;
+    letter-spacing: normal;
 }
 
 .price-source-live {
