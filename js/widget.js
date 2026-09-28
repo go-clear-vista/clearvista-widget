@@ -66,7 +66,7 @@ const state = {
     currentDistributor: 'ingram',
     // Pre-close product upsert (see preflightZohoProducts)
     submitErrors: new Map(),        // queue key -> error message from the last failed submit
-    upsertedProductIds: new Map(),  // fn + payload -> Zoho product id, so a retry skips items that already succeeded
+    upsertedProductIds: new Map(),  // fn + payload -> {productId, manufacturerId, action}, so a retry skips items that already succeeded
     submitInProgress: false,
     // Filters
     manufacturer: '',
@@ -6429,11 +6429,22 @@ async function runZohoUpsert(fnName, payload) {
     if (!result || result.success !== true || !result.product_id) {
         throw new Error(result ? describeUpsertFailure(result) : 'Empty function output');
     }
-    return String(result.product_id);
+    return {
+        productId: String(result.product_id),
+        manufacturerId: result.manufacturer_id ? String(result.manufacturer_id) : null,
+        action: result.action_taken || null
+    };
+}
+
+// Fields the Client Script reads to skip its own Deluge call for this product.
+function applyUpsertResult(product, upsert) {
+    product.Zoho_Product_Id = upsert.productId;
+    product.Zoho_Manufacturer_Id = upsert.manufacturerId;
+    product.Zoho_Action = upsert.action;
 }
 
 // Runs the create/update function for every product, sequentially (same as the
-// Client Script). Sets Zoho_Product_Id on each successful product and returns
+// Client Script). Sets Zoho_Product_Id / Zoho_Manufacturer_Id on each successful product and returns
 // [{index, sku, reason}] for the ones that failed. Never throws.
 async function preflightZohoProducts(formattedProducts, queueKeys) {
     const failures = [];
@@ -6452,16 +6463,16 @@ async function preflightZohoProducts(formattedProducts, queueKeys) {
 
         const payload = buildUpsertPayload(product);
         const cacheKey = fnName + '|' + JSON.stringify(payload);
-        const cachedId = state.upsertedProductIds.get(cacheKey);
-        if (cachedId) {
-            product.Zoho_Product_Id = cachedId;
+        const cached = state.upsertedProductIds.get(cacheKey);
+        if (cached) {
+            applyUpsertResult(product, cached);
             continue;
         }
 
         try {
-            const productId = await runZohoUpsert(fnName, payload);
-            product.Zoho_Product_Id = productId;
-            state.upsertedProductIds.set(cacheKey, productId);
+            const upsert = await runZohoUpsert(fnName, payload);
+            applyUpsertResult(product, upsert);
+            state.upsertedProductIds.set(cacheKey, upsert);
         } catch (error) {
             console.error(`[Preflight] ${sku} failed:`, error);
             failures.push({ index: i, sku, reason: error.message || String(error) });
