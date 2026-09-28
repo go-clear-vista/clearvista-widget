@@ -6264,6 +6264,11 @@ async function submitQueue() {
     let productsToFormat = getActiveQueue();
     if (state.searchMode === 'bulk') {
         productsToFormat = productsToFormat.map(product => {
+            // Engineering Quotes items are already full single-mode products
+            // (from the distributor mappers) - re-mapping them would drop the
+            // manufacturer and distributor SKUs
+            if (product._fullyMapped) return product;
+
             const raw = product._rawRpcRow;
             const dist = product._source || state.currentDistributor;
 
@@ -6306,7 +6311,7 @@ async function submitQueue() {
                 // Fallback: build minimal shape from bulk fields
                 return {
                     vendorPartNumber: product.mpn || product.vendorPartNumber || '',
-                    vendorName: product.manufacturer || '',
+                    vendorName: product.manufacturer || product.vendorName || '',
                     description: product.description || '',
                     retailPrice: product.msrp || 0,
                     pricingData: { pricing: { retailPrice: product.msrp, customerPrice: product.resellerPrice } },
@@ -11068,7 +11073,15 @@ function engQuoteAddToQueue() {
     const queue = getActiveQueue();
     let added = 0, skipped = 0;
     chosen.forEach(item => {
-        const product = { ...item.matches[item.selected], qty: item.qty, customerDiscount: 0 };
+        const matched = item.matches[item.selected];
+        const product = {
+            ...matched,
+            // Fall back to the BOM's manufacturer if the price sheet row has none
+            vendorName: matched.vendorName || item.manufacturer || '',
+            qty: item.qty,
+            customerDiscount: 0,
+            _fullyMapped: true
+        };
         const key = getProductKey(product);
         if (queue.some(p => getProductKey(p) === key)) {
             skipped++;
