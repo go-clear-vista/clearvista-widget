@@ -1130,6 +1130,28 @@ button svg {
     font-size: var(--font-size-2xs);
 }
 
+/* Price Source Badges (next to Product Name in details) */
+.price-source-live,
+.price-source-sheet {
+    display: inline-block;
+    color: var(--color-text-inverse);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: var(--font-size-2xs);
+    margin-left: var(--space-2);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.price-source-live {
+    background: var(--color-success);
+}
+
+.price-source-sheet {
+    background: var(--color-warning);
+}
+
 /* Arrow API loading indicator */
 .arrow-loading-indicator {
     display: inline-block;

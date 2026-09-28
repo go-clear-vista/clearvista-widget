@@ -6400,6 +6400,12 @@ async function showProductDetails(productIndex) {
         return `$${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
+    // Price source badge: LIVE = pricing fetched from the distributor API,
+    // Price Sheet = pricing from the Supabase price sheet tables
+    const priceSourceBadge = (isLive) => isLive
+        ? '<span class="price-source-live" title="Pricing captured live from the distributor API">LIVE</span>'
+        : '<span class="price-source-sheet" title="Pricing pulled from the price sheet database">Price Sheet</span>';
+
     const renderGrid = (elementId, fields) => {
         const grid = document.getElementById(elementId);
         if (grid) {
@@ -6457,8 +6463,9 @@ async function showProductDetails(productIndex) {
         const authorizedClass = isNotAuthorized ? 'authorized-no' : 'authorized-yes';
 
         // Header - Product Name (from part_description)
+        // Pricing always comes from the flat-file DB — the warehouse API returns availability only
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'}
+            <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(false)}
         `;
 
         // Header - TD Synnex SKU (Field 5), Vendor Part (manufacturer_part_number), Manufacturer, Authorized
@@ -6626,9 +6633,10 @@ async function showProductDetails(productIndex) {
         const authorizedText = isAuthorized ? 'Yes' : 'No';
         const authorizedClass = isAuthorized ? 'authorized-yes' : 'authorized-no';
 
-        // Header - Product Name
+        // Header - Product Name (LIVE when the API returned a price, else DB price sheet)
+        const adiHasLivePrice = !!(adiItemData?.ItemPrice && parseFloat(adiItemData.ItemPrice));
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'}
+            <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(adiHasLivePrice)}
         `;
 
         // Header - ADI SKU, Vendor Part, Manufacturer, Authorized
@@ -6737,6 +6745,12 @@ async function showProductDetails(productIndex) {
         await Promise.all(fetchPromises);
     }
 
+    // Live pricing = an API response with a customer price; otherwise fall back to the DB price sheet
+    const hasLivePricing = !!(pricingData && !pricingData._dbSource && pricingData.pricing?.customerPrice != null);
+    if (!hasLivePricing && product.pricingData?._dbSource) {
+        pricingData = { ...pricingData, ...product.pricingData };
+    }
+
     const fullProductData = { ...product, pricingData, productDetails };
 
     const isAuthorized = product.authorizedToPurchase === 'true' ||
@@ -6745,9 +6759,9 @@ async function showProductDetails(productIndex) {
     const authorizedText = isAuthorized ? 'Yes' : 'No';
     const authorizedClass = isAuthorized ? 'authorized-yes' : 'authorized-no';
 
-    // Row 1: Product Name
+    // Row 1: Product Name + price source badge
     document.getElementById('detailsProductName').innerHTML = `
-        <strong>Product Name:</strong> ${product.description || 'N/A'}
+        <strong>Product Name:</strong> ${product.description || 'N/A'} ${priceSourceBadge(hasLivePricing)}
     `;
     // Row 2: Ingram SKU, Vendor Part, Manufacturer, Authorized
     document.getElementById('detailsSubtitle').innerHTML = `
