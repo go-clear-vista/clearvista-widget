@@ -1162,6 +1162,17 @@ button svg {
     margin: -2px 0 var(--space-1);
 }
 
+/* Authorized N/A - no distributor API to check against */
+.authorized-na {
+    display: inline-block;
+    background: var(--color-text-secondary);
+    color: var(--color-text-inverse);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: var(--font-size-2xs);
+}
+
 /* Arrow API loading indicator */
 .arrow-loading-indicator {
     display: inline-block;

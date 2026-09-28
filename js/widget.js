@@ -6797,6 +6797,89 @@ async function showProductDetails(productIndex) {
     }
 
     // ========================================
+    // PRICE-SHEET-ONLY DISTRIBUTORS (Almo, Teledynamics, Vendor Direct)
+    // ========================================
+    // No distributor API exists for these, so everything comes from the
+    // Supabase price sheet row and Authorized is N/A (not an assumed Yes).
+    // They must never fall through to the Ingram section below, which would
+    // query Ingram's API with a non-Ingram part number.
+    const PRICE_SHEET_ONLY = {
+        almo: { skuLabel: 'Almo SKU', sku: product.almoSku },
+        teledynamics: { skuLabel: 'Teledynamics SKU', sku: product.teledynamicsPn },
+        vendordirect: { skuLabel: null, sku: null }
+    };
+    const sheetOnly = PRICE_SHEET_ONLY[product._source];
+    if (sheetOnly) {
+        const raw = product._rawProduct || {};
+
+        document.getElementById('detailsProductName').innerHTML = `
+            <strong>Product Name:</strong> ${product.description || 'N/A'}
+        `;
+
+        const skuPart = sheetOnly.skuLabel
+            ? `<strong>${sheetOnly.skuLabel}:</strong> ${sheetOnly.sku || product.distributorPartNumber || 'N/A'} | `
+            : '';
+        const vendorPart = raw.mpn || product.vendorPartNumber;
+        document.getElementById('detailsSubtitle').innerHTML = `
+            ${skuPart}<strong>Vendor Part:</strong> ${vendorPart || 'N/A'} |
+            <strong>Manufacturer:</strong> ${product.vendorName || state.manufacturer} |
+            <strong>Authorized:</strong> <span class="authorized-na" title="No distributor API connected, so authorization can't be checked">N/A</span>
+        `;
+
+        const longDesc = product.extraDescription || '';
+        const longDescEl = document.getElementById('detailsLongDesc');
+        if (longDesc) {
+            longDescEl.innerHTML = `<strong>Long Description:</strong> ${longDesc}`;
+            longDescEl.style.display = 'block';
+        } else {
+            longDescEl.style.display = 'none';
+        }
+
+        const productInfoFields = [
+            { label: product._source === 'vendordirect' ? 'Category' : 'Category 1', value: product.category || '-' }
+        ];
+        if (product._source !== 'vendordirect') {
+            productInfoFields.push({ label: 'Category 2', value: product.category2 || '-' });
+        }
+        productInfoFields.push({ label: 'UPC', value: product.upcCode || '-' });
+        renderGrid('productInfoGrid', productInfoFields);
+
+        const pricingFields = [
+            { label: 'MSRP', value: formatCurrency(product.pricingData?.pricing?.retailPrice) },
+            { label: 'Customer Price', value: formatCurrency(product.pricingData?.pricing?.customerPrice) }
+        ];
+        renderGrid('pricingGrid', pricingFields);
+        setPriceSourceBadge(false);
+
+        // Almo/Teledynamics sheets carry a stock count; Vendor Direct sheets don't
+        const qty = raw.quantity_in_stock;
+        const hasQty = qty !== null && qty !== undefined && qty !== '';
+        const availabilityFields = hasQty
+            ? [
+                { label: 'In Stock', value: yesNo(Number(qty) > 0) },
+                { label: 'Available Qty', value: Number(qty) }
+            ]
+            : [
+                { label: 'In Stock', value: '-' },
+                { label: 'Available Qty', value: '-' }
+            ];
+        renderGrid('availabilityGrid', availabilityFields);
+
+        renderFlagsGrid('flagsGrid', []);
+
+        const discountsGroup = document.getElementById('discountsGroup');
+        if (discountsGroup) discountsGroup.style.display = 'none';
+        const warehouseSection = document.getElementById('warehouseSection');
+        if (warehouseSection) warehouseSection.style.display = 'none';
+
+        document.getElementById('rawApiResponse').textContent = JSON.stringify(product, null, 2);
+        var _li = document.getElementById('detailsLoadingIndicator');
+        if (_li) _li.style.display = 'none';
+        scrollToPanel('productDetailsSection');
+        return;
+    }
+
+    // ========================================
     // INGRAM MICRO PRODUCT DETAILS
     // ========================================
     const ingramPn = product.ingramPartNumber;
@@ -10024,6 +10107,27 @@ function bulkShowProductInfo(index) {
             } else {
                 mapped = { ...product, vendorPartNumber: product.mpn, adiSku: product.vpn, _source: 'adi' };
             }
+            break;
+        case 'almo':
+            mapped = rawRow
+                ? mapAlmoProduct(rawRow)
+                : product._source === 'almo'
+                    ? product
+                    : { ...product, vendorPartNumber: product.mpn, almoSku: product.vpn, distributorPartNumber: product.vpn, _source: 'almo' };
+            break;
+        case 'teledynamics':
+            mapped = rawRow
+                ? mapTeledynamicsProduct(rawRow)
+                : product._source === 'teledynamics'
+                    ? product
+                    : { ...product, vendorPartNumber: product.mpn, teledynamicsPn: product.vpn, distributorPartNumber: product.vpn, _source: 'teledynamics' };
+            break;
+        case 'vendordirect':
+            mapped = rawRow
+                ? mapVendorDirectProduct(rawRow)
+                : product._source === 'vendordirect'
+                    ? product
+                    : { ...product, vendorPartNumber: product.mpn, distributorPartNumber: product.mpn, _source: 'vendordirect' };
             break;
         case 'ingram':
         default:
