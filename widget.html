@@ -126,6 +126,13 @@
                         </svg>
                         <span class="admin-nav-label">Name Resolution</span>
                     </button>
+                    <button class="admin-nav-item" data-admin-page="changelog" onclick="selectAdminPage('changelog')" data-tooltip="Changelog">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <polyline points="12 7 12 12 15 14"></polyline>
+                        </svg>
+                        <span class="admin-nav-label">Changelog</span>
+                    </button>
                 </nav>
                 <div class="admin-content">
                     <div class="admin-page active" id="adminPage-mfr-filters">
@@ -313,6 +320,25 @@
                                     Save Mappings
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                    <div class="admin-page" id="adminPage-changelog">
+                        <div class="changelog-header">
+                            <div>
+                                <div class="changelog-title">Widget Changelog</div>
+                                <div class="changelog-subtitle">Changes to the ClearVista widget, read live from GitHub (<code>main</code> branch)</div>
+                            </div>
+                            <button class="mfr-btn" id="changelogRefreshBtn" onclick="loadChangelog(true)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                </svg>
+                                Refresh
+                            </button>
+                        </div>
+                        <div class="changelog-list" id="changelogList"></div>
+                        <div class="changelog-footer">
+                            <button class="mfr-btn" id="changelogMoreBtn" onclick="loadChangelog(false, true)" style="display:none;">Load more</button>
                         </div>
                     </div>
                 </div>

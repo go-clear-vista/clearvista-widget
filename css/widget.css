@@ -6461,6 +6461,100 @@ button.sel-btn .sel-btn-icon {
 }
 
 /* =====================================================
+   ADMIN — CHANGELOG
+   ===================================================== */
+.changelog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.changelog-title {
+    font-size: var(--font-size-md);
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.changelog-subtitle {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    margin-top: 2px;
+}
+
+.changelog-day {
+    margin-bottom: var(--space-4);
+}
+
+.changelog-day-label {
+    font-size: var(--font-size-2xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-2);
+}
+
+.changelog-entry {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.changelog-entry-title {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.changelog-entry-body {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    white-space: pre-line;
+    margin-top: var(--space-1);
+    line-height: 1.5;
+}
+
+.changelog-entry-meta {
+    font-size: var(--font-size-2xs);
+    color: var(--color-text-muted);
+    margin-top: var(--space-1);
+}
+
+.changelog-entry-meta a {
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    text-decoration: none;
+}
+
+.changelog-entry-meta a:hover {
+    text-decoration: underline;
+}
+
+.changelog-empty {
+    padding: 40px var(--space-4);
+    text-align: center;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+}
+
+.changelog-error {
+    color: var(--color-error);
+}
+
+.changelog-footer {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-2) 0 var(--space-4);
+}
+
+/* =====================================================
    ADMIN — MANUFACTURER FILTER MANAGEMENT
    ===================================================== */
 

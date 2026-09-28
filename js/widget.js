@@ -211,7 +211,7 @@ function selectAdminPage(pageId) {
     // Show/hide header actions based on page (name-resolution has its own save)
     const headerActions = document.getElementById('adminHeaderActions');
     if (headerActions) {
-        headerActions.style.display = (pageId === 'name-resolution') ? 'none' : 'flex';
+        headerActions.style.display = (pageId === 'name-resolution' || pageId === 'changelog') ? 'none' : 'flex';
     }
 
     // Auto-load data when navigating to pages
@@ -219,7 +219,131 @@ function selectAdminPage(pageId) {
         loadMfrFilterData(state.adminActiveTab);
     } else if (pageId === 'name-resolution') {
         loadAdminResolutionData(state.adminResolutionTab);
+    } else if (pageId === 'changelog') {
+        loadChangelog(false);
     }
+}
+
+// =====================================================
+// ADMIN — CHANGELOG (commits on the widget repo's main branch)
+// =====================================================
+// The widget repo is public, so this reads GitHub's API directly - no token.
+// Unauthenticated calls are limited to 60/hour per IP, so results are cached
+// for the session and only re-fetched via Refresh or Load more.
+
+const CHANGELOG_REPO = 'go-clear-vista/clearvista-widget';
+const CHANGELOG_PAGE_SIZE = 50;
+const changelogState = { commits: [], page: 0, hasMore: false, loading: false, loaded: false };
+
+async function loadChangelog(forceRefresh, loadMore) {
+    if (changelogState.loading) return;
+    if (changelogState.loaded && !forceRefresh && !loadMore) {
+        renderChangelog();
+        return;
+    }
+    if (forceRefresh) {
+        changelogState.commits = [];
+        changelogState.page = 0;
+    }
+
+    const listEl = document.getElementById('changelogList');
+    const moreBtn = document.getElementById('changelogMoreBtn');
+    changelogState.loading = true;
+    if (!loadMore && listEl) {
+        listEl.innerHTML = '<div class="changelog-empty">Loading changelog\u2026</div>';
+    }
+    if (moreBtn) moreBtn.disabled = true;
+
+    const nextPage = changelogState.page + 1;
+    try {
+        const res = await fetch(
+            `https://api.github.com/repos/${CHANGELOG_REPO}/commits?sha=main&per_page=${CHANGELOG_PAGE_SIZE}&page=${nextPage}`,
+            { headers: { 'Accept': 'application/vnd.github+json' } }
+        );
+        if (!res.ok) {
+            const rateLimited = res.status === 403 || res.status === 429;
+            throw new Error(rateLimited
+                ? 'GitHub rate limit reached. Try again in a few minutes.'
+                : `GitHub returned ${res.status}`);
+        }
+        const commits = await res.json();
+        changelogState.commits.push(...commits);
+        changelogState.page = nextPage;
+        changelogState.hasMore = commits.length === CHANGELOG_PAGE_SIZE;
+        changelogState.loaded = true;
+        renderChangelog();
+    } catch (err) {
+        console.error('[Changelog] Failed to load commits:', err);
+        if (listEl && !changelogState.commits.length) {
+            listEl.innerHTML = `<div class="changelog-empty changelog-error">Couldn't load the changelog: ${escapeHtml(err.message)}</div>`;
+        } else {
+            showStatus(`Couldn't load more changes: ${err.message}`, 'error');
+        }
+    } finally {
+        changelogState.loading = false;
+        if (moreBtn) moreBtn.disabled = false;
+    }
+}
+
+/**
+ * Split a commit message into a title and a body, dropping git trailers
+ * (Co-Authored-By, Claude-Session, Signed-off-by, ...).
+ */
+function parseChangelogMessage(message) {
+    const lines = (message || '').split('\n');
+    const title = lines.shift() || '';
+    const kept = lines
+        .filter(line => !/^(Co-Authored-By|Claude-Session|Signed-off-by|Reviewed-by):/i.test(line.trim()))
+        .join('\n')
+        .trim();
+    // Commit bodies are hard-wrapped at ~72 chars: rejoin wrapped lines, but
+    // keep paragraph breaks and put each bullet point on its own line
+    const body = kept.split(/\n\s*\n/).map(para =>
+        para.split('\n').map(l => l.trim()).reduce((acc, line) => {
+            if (!acc) return line;
+            return /^([-*•]|\d+\.)\s/.test(line) ? `${acc}\n${line}` : `${acc} ${line}`;
+        }, '')
+    ).join('\n\n');
+    return { title, body };
+}
+
+function renderChangelog() {
+    const listEl = document.getElementById('changelogList');
+    const moreBtn = document.getElementById('changelogMoreBtn');
+    if (!listEl) return;
+
+    // Merge commits ("Merge pull request #N ...") only repeat the work below them
+    const commits = changelogState.commits.filter(c => (c.parents || []).length < 2);
+    if (!commits.length) {
+        listEl.innerHTML = '<div class="changelog-empty">No changes found.</div>';
+    } else {
+        let html = '';
+        let currentDay = '';
+        commits.forEach(c => {
+            const date = new Date(c.commit?.committer?.date || c.commit?.author?.date);
+            const day = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+            if (day !== currentDay) {
+                if (currentDay) html += '</div>';
+                html += `<div class="changelog-day"><div class="changelog-day-label">${escapeHtml(day)}</div>`;
+                currentDay = day;
+            }
+            const { title, body } = parseChangelogMessage(c.commit?.message);
+            const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+            const author = c.commit?.author?.name || c.author?.login || 'Unknown';
+            html += `
+                <div class="changelog-entry">
+                    <div class="changelog-entry-title">${escapeHtml(title)}</div>
+                    ${body ? `<div class="changelog-entry-body">${escapeHtml(body)}</div>` : ''}
+                    <div class="changelog-entry-meta">
+                        ${escapeHtml(time)} &middot; ${escapeHtml(author)} &middot;
+                        <a href="${escapeHtml(c.html_url || '')}" target="_blank" rel="noopener noreferrer">${escapeHtml((c.sha || '').slice(0, 7))}</a>
+                    </div>
+                </div>`;
+        });
+        if (currentDay) html += '</div>';
+        listEl.innerHTML = html;
+    }
+    if (moreBtn) moreBtn.style.display = changelogState.hasMore ? '' : 'none';
 }
 
 // =====================================================
