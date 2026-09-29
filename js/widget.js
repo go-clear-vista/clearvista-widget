@@ -64,6 +64,10 @@ const DISTRIBUTORS = {
 // =====================================================
 const state = {
     currentDistributor: 'ingram',
+    // Pre-close product upsert (see preflightZohoProducts)
+    submitErrors: new Map(),        // queue key -> error message from the last failed submit
+    upsertedProductIds: new Map(),  // fn + payload -> {productId, manufacturerId, action}, so a retry skips items that already succeeded
+    submitInProgress: false,
     // Filters
     manufacturer: '',
     category: '',
@@ -2133,6 +2137,7 @@ async function saveAdminResolutions() {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Widget DOM loaded, initializing...');
     initZohoSDK();
+    initLastSubmissionBanner();
     initEventListeners();
     initDragAndDrop();
     initResize();
@@ -5258,6 +5263,11 @@ function createQueueItemElement(product, index) {
 
     const li = document.createElement('li');
     li.className = 'queue-item';
+    const submitError = state.submitErrors.get(partNumber);
+    if (submitError) {
+        li.classList.add('queue-item-error');
+        li.title = 'Not added to quote: ' + submitError;
+    }
     li.draggable = true;
     li.dataset.partNumber = partNumber;
     li.dataset.index = index;
@@ -6181,6 +6191,9 @@ function createQueueColumnLabelsHTML() {
 async function submitQueue() {
     console.log('[SubmitQueue] Function called');
 
+    if (state.submitInProgress) return;
+    hideSubmitErrors();
+
     if (getActiveQueue().length === 0) {
         showStatus('No products in queue', 'error');
         return;
@@ -6482,17 +6495,304 @@ async function submitQueue() {
         return;
     }
 
-    // Step 6: Submit to Zoho
-    if (typeof $Client !== 'undefined') {
-        console.log('[SubmitQueue] Calling $Client.close...');
-        $Client.close({
-            products: formattedProducts,
-            distributor: state.currentDistributor
-        });
-    } else {
+    // Step 6: Create/update every product in Zoho BEFORE closing, so a failure is
+    // reported here with the queue still intact instead of inside the Client
+    // Script after the widget is gone.
+    if (typeof $Client === 'undefined') {
         console.log('[SubmitQueue] Standalone mode - would send:', formattedProducts);
         showStatus(`Queued ${formattedProducts.length} products (standalone mode)`, 'info');
+        return;
     }
+
+    const queueKeys = getActiveQueue().map(getProductKey);
+    setSubmitBusy(true);
+    let failures;
+    try {
+        failures = await preflightZohoProducts(formattedProducts, queueKeys);
+    } finally {
+        setSubmitBusy(false);
+    }
+
+    if (failures.length > 0) {
+        showSubmitErrors(failures, formattedProducts);
+        return;
+    }
+
+    closeWithProducts(formattedProducts);
+}
+
+// =====================================================
+// PRE-CLOSE PRODUCT UPSERT
+// =====================================================
+// Same Deluge functions the Client Script calls, keyed by Last_Sync_Source.
+const ZOHO_UPSERT_FUNCTIONS = {
+    'Ingram Micro': 'createingramproduct',
+    'TD SYNNEX': 'createtdsynnexproduct',
+    'ADI Global': 'createadiglobalproduct',
+    'Almo': 'create_almo_product',
+    'Teledynamics': 'create_teledynamics_product',
+    'Vendor Direct': 'createvendordirectproduct'
+};
+const ZOHO_UPSERT_TIMEOUT_MS = 60000;
+const LAST_SUBMISSION_KEY = 'cv_last_submission';
+const LAST_SUBMISSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// Mirrors the productData the Client Script sends. Free-text fields the Deluge
+// functions run through zoho.encryption.urlDecode are URI-encoded so "+", "%"
+// and "#" survive the round trip.
+function buildUpsertPayload(p) {
+    const str = v => (v === null || v === undefined) ? '' : String(v);
+    const enc = v => encodeURIComponent(str(v));
+    return {
+        manufacturer_part_number: str(p.Product_Code),
+        manufacturer_name: str(p.Manufacturer),
+        product_name: enc(p.Product_Name),
+        msrp: str(p.MSRP),
+        customer_price: str(p.Customer_Price),
+        description: enc(p.Description),
+        upc: str(p.UPC),
+        last_sync_source: str(p.Last_Sync_Source),
+        ingram_micro_sku: str(p.Ingram_Micro_SKU),
+        category: enc(p.Category),
+        subcategory: enc(p.Subcategory),
+        im_product_type: str(p.IM_Product_Type),
+        tdsynnex_sku: str(p.TDSynnex_SKU),
+        category_level_1: enc(p.Category_Level_1),
+        category_level_2: enc(p.Category_Level_2),
+        category_level_3: enc(p.Category_Level_3),
+        adi_sku: str(p.ADI_SKU),
+        category_1: enc(p.ADI_Category_1),
+        category_2: enc(p.ADI_Category_2),
+        almo_sku: str(p.Almo_SKU),
+        almo_category_1: enc(p.Almo_Category_1),
+        almo_category_2: enc(p.Almo_Category_2),
+        teledynamics_pn: str(p.Teledynamics_SKU),
+        teledynamics_category_1: enc(p.Teledynamics_Category_1),
+        teledynamics_category_2: enc(p.Teledynamics_Category_2),
+        vendor_direct_category: str(p.Vendor_Direct_Category),
+        unspsc_commodity: str(p.UNSPSC_Commodity),
+        kit_or_standalone: str(p.Kit_or_Standalone),
+        replacement_sku: enc(p.Replacement_SKU)
+    };
+}
+
+// Pull a readable reason out of a Deluge failure map; "details" is often a
+// stringified CRM API error like {"code":"DUPLICATE_DATA","message":"..."}.
+function describeUpsertFailure(result) {
+    let reason = result.error || 'Unknown error';
+    if (result.details) {
+        let detail = String(result.details);
+        try {
+            const parsed = JSON.parse(detail);
+            const d = Array.isArray(parsed) ? parsed[0] : parsed;
+            if (d && (d.code || d.message)) detail = [d.code, d.message].filter(Boolean).join(': ');
+        } catch (e) { /* not JSON, use as-is */ }
+        reason += ' - ' + (detail.length > 200 ? detail.slice(0, 200) + '...' : detail);
+    }
+    return reason;
+}
+
+async function runZohoUpsert(fnName, payload) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out after ${ZOHO_UPSERT_TIMEOUT_MS / 1000}s`)), ZOHO_UPSERT_TIMEOUT_MS);
+    });
+    if (typeof ZOHO === 'undefined' || !ZOHO.CRM || !ZOHO.CRM.FUNCTIONS || !ZOHO.CRM.FUNCTIONS.execute) {
+        throw new Error('Zoho SDK function API is not available in this widget');
+    }
+    let resp;
+    try {
+        resp = await Promise.race([
+            ZOHO.CRM.FUNCTIONS.execute(fnName, { arguments: JSON.stringify(payload) }),
+            timeout
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+    console.log(`[Preflight] ${fnName} response:`, resp);
+
+    if (!resp || resp.code !== 'success') {
+        throw new Error((resp && (resp.message || resp.code)) || 'Function call failed');
+    }
+    const output = resp.details ? resp.details.output : undefined;
+    let result;
+    try {
+        result = typeof output === 'string' ? JSON.parse(output) : output;
+    } catch (e) {
+        throw new Error('Unreadable function output: ' + String(output).slice(0, 200));
+    }
+    if (!result || result.success !== true || !result.product_id) {
+        throw new Error(result ? describeUpsertFailure(result) : 'Empty function output');
+    }
+    return {
+        productId: String(result.product_id),
+        manufacturerId: result.manufacturer_id ? String(result.manufacturer_id) : null,
+        action: result.action_taken || null
+    };
+}
+
+// Fields the Client Script reads to skip its own Deluge call for this product.
+function applyUpsertResult(product, upsert) {
+    product.Zoho_Product_Id = upsert.productId;
+    product.Zoho_Manufacturer_Id = upsert.manufacturerId;
+    product.Zoho_Action = upsert.action;
+}
+
+// Runs the create/update function for every product, sequentially (same as the
+// Client Script). Sets Zoho_Product_Id / Zoho_Manufacturer_Id on each successful product and returns
+// [{index, sku, reason}] for the ones that failed. Never throws.
+async function preflightZohoProducts(formattedProducts, queueKeys) {
+    const failures = [];
+    state.submitErrors.clear();
+
+    for (let i = 0; i < formattedProducts.length; i++) {
+        const product = formattedProducts[i];
+        const sku = product.Product_Code || `item ${i + 1}`;
+        showStatus(`Saving product ${i + 1} of ${formattedProducts.length} to Zoho: ${escapeHtml(sku)}...`, 'loading');
+
+        const fnName = ZOHO_UPSERT_FUNCTIONS[product.Last_Sync_Source];
+        if (!fnName) {
+            failures.push({ index: i, sku, reason: `No Zoho function for source "${product.Last_Sync_Source}"` });
+            continue;
+        }
+
+        const payload = buildUpsertPayload(product);
+        const cacheKey = fnName + '|' + JSON.stringify(payload);
+        const cached = state.upsertedProductIds.get(cacheKey);
+        if (cached) {
+            applyUpsertResult(product, cached);
+            continue;
+        }
+
+        try {
+            const upsert = await runZohoUpsert(fnName, payload);
+            applyUpsertResult(product, upsert);
+            state.upsertedProductIds.set(cacheKey, upsert);
+        } catch (error) {
+            console.error(`[Preflight] ${sku} failed:`, error);
+            failures.push({ index: i, sku, reason: error.message || String(error) });
+        }
+    }
+
+    for (const f of failures) {
+        if (queueKeys[f.index]) state.submitErrors.set(queueKeys[f.index], f.reason);
+    }
+    return failures;
+}
+
+function setSubmitBusy(busy) {
+    state.submitInProgress = busy;
+    const btn = document.getElementById('submitQueueBtn');
+    if (btn) btn.disabled = busy;
+    const retryBtn = document.getElementById('submitErrorRetryBtn');
+    if (retryBtn) retryBtn.disabled = busy;
+    const anywayBtn = document.getElementById('submitErrorSendAnywayBtn');
+    if (anywayBtn) anywayBtn.disabled = busy;
+}
+
+function showSubmitErrors(failures, formattedProducts) {
+    const panel = document.getElementById('submitErrorPanel');
+    const list = document.getElementById('submitErrorList');
+    const title = document.getElementById('submitErrorTitle');
+    const anywayBtn = document.getElementById('submitErrorSendAnywayBtn');
+
+    title.textContent = `${failures.length} of ${formattedProducts.length} product(s) could not be saved to Zoho. Nothing was added to the quote and your queue is unchanged.`;
+    list.innerHTML = failures.map(f =>
+        `<li><strong>${escapeHtml(f.sku)}</strong>: ${escapeHtml(f.reason)}</li>`
+    ).join('');
+    // "Send anyway" hands the full list to the Client Script the old way, which
+    // re-runs these functions itself. Kept as an escape hatch.
+    anywayBtn.onclick = () => closeWithProducts(formattedProducts);
+    panel.style.display = 'block';
+
+    showStatus(`${failures.length} product(s) failed to save - see the queue panel for details.`, 'error');
+    updateQueueUI();
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideSubmitErrors() {
+    const panel = document.getElementById('submitErrorPanel');
+    if (panel) panel.style.display = 'none';
+    if (state.submitErrors.size > 0) {
+        state.submitErrors.clear();
+        updateQueueUI();
+    }
+}
+
+function closeWithProducts(formattedProducts) {
+    saveLastSubmission();
+    console.log('[SubmitQueue] Calling $Client.close...');
+    $Client.close({
+        products: formattedProducts,
+        distributor: state.currentDistributor
+    });
+}
+
+// =====================================================
+// LAST-SUBMISSION RECOVERY
+// =====================================================
+// The quote line items are still written by the Client Script after the widget
+// closes; if that step fails, the queue would otherwise be gone. Keep a copy so
+// the next open can restore it.
+function saveLastSubmission() {
+    try {
+        localStorage.setItem(LAST_SUBMISSION_KEY, JSON.stringify({
+            savedAt: Date.now(),
+            searchMode: state.searchMode,
+            queue: getActiveQueue()
+        }));
+    } catch (e) {
+        console.warn('[LastSubmission] Could not save queue:', e);
+    }
+}
+
+function loadLastSubmission() {
+    try {
+        const raw = localStorage.getItem(LAST_SUBMISSION_KEY);
+        if (!raw) return null;
+        const saved = JSON.parse(raw);
+        if (!saved || !Array.isArray(saved.queue) || saved.queue.length === 0 ||
+            Date.now() - saved.savedAt > LAST_SUBMISSION_MAX_AGE_MS) {
+            localStorage.removeItem(LAST_SUBMISSION_KEY);
+            return null;
+        }
+        return saved;
+    } catch (e) {
+        return null;
+    }
+}
+
+function discardLastSubmission() {
+    try { localStorage.removeItem(LAST_SUBMISSION_KEY); } catch (e) { /* storage blocked */ }
+    const banner = document.getElementById('restoreQueueBanner');
+    if (banner) banner.style.display = 'none';
+}
+
+function initLastSubmissionBanner() {
+    const saved = loadLastSubmission();
+    const banner = document.getElementById('restoreQueueBanner');
+    if (!saved || !banner) return;
+    const when = new Date(saved.savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    document.getElementById('restoreQueueText').textContent =
+        `Last submission (${saved.queue.length} item${saved.queue.length === 1 ? '' : 's'}, ${when}) is saved. Items missing from the quote?`;
+    banner.style.display = 'flex';
+}
+
+function restoreLastSubmission() {
+    const saved = loadLastSubmission();
+    if (!saved) {
+        discardLastSubmission();
+        return;
+    }
+    if (saved.searchMode && saved.searchMode !== state.searchMode) {
+        setSearchMode(saved.searchMode);
+    }
+    const existingKeys = new Set(getActiveQueue().map(getProductKey));
+    const toAdd = saved.queue.filter(p => !existingKeys.has(getProductKey(p)));
+    setActiveQueue(getActiveQueue().concat(toAdd));
+    updateQueueUI();
+    discardLastSubmission();
+    showStatus(`Restored ${toAdd.length} item(s) from your last submission`, 'success');
 }
 
 // =====================================================
