@@ -6504,6 +6504,11 @@ async function submitQueue() {
         return;
     }
 
+    if (!ZOHO_PRESAVE_ENABLED) {
+        closeWithProducts(formattedProducts);
+        return;
+    }
+
     const queueKeys = getActiveQueue().map(getProductKey);
     setSubmitBusy(true);
     let failures;
@@ -6524,6 +6529,14 @@ async function submitQueue() {
 // =====================================================
 // PRE-CLOSE PRODUCT UPSERT
 // =====================================================
+// Off until the create-*-product Deluge functions accept the widget's call.
+// They read each field from crmAPIRequest "params" (how the Client Script's
+// ZDK.Apps.CRM.Functions.execute sends them), but ZOHO.CRM.FUNCTIONS.execute
+// sends one JSON "arguments" value, so every product failed with
+// "Missing manufacturer_part_number". While off, Add to Quote hands the queue
+// straight to the Client Script (v1.26 reports per-SKU failures itself).
+const ZOHO_PRESAVE_ENABLED = false;
+
 // Same Deluge functions the Client Script calls, keyed by Last_Sync_Source.
 const ZOHO_UPSERT_FUNCTIONS = {
     'Ingram Micro': 'createingramproduct',
