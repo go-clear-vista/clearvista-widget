@@ -68,6 +68,10 @@ const state = {
     submitErrors: new Map(),        // queue key -> error message from the last failed submit
     upsertedProductIds: new Map(),  // fn + payload -> {productId, manufacturerId, action}, so a retry skips items that already succeeded
     submitInProgress: false,
+    // Admin Name Resolution, Vendor Direct tab: vendor per VD manufacturer name
+    vdVendorOverrides: new Map(),
+    vdVendorEditing: null,
+    vdVendorResults: [],
     // Filters
     manufacturer: '',
     category: '',
@@ -1446,6 +1450,22 @@ async function loadAdminResolutionData(dist) {
         // Reload mappings to ensure fresh data
         await loadManufacturerMappings();
 
+        // The user switched tabs while this was loading - a newer call owns
+        // the table, so don't overwrite it with this distributor's names.
+        if (dist !== state.adminResolutionTab) return;
+
+        state.vdVendorEditing = null;
+        if (dist === 'vendordirect') {
+            try {
+                state.vdVendorOverrides = await loadVdVendorOverrides();
+            } catch (err) {
+                console.warn('[VDVendor]', err);
+                state.vdVendorOverrides = new Map();
+                showStatus('Vendor overrides could not be loaded - the Vendor column may be out of date.', 'error');
+            }
+            if (dist !== state.adminResolutionTab) return;
+        }
+
         // Determine which alias field to check
         let aliasField;
         if (dist === 'tdsynnex') aliasField = 'td_synnex_aliases';
@@ -1625,6 +1645,7 @@ function renderAdminResolutionTable() {
                             </button>
                         </div>
                     </td>
+                    ${vdVendorCellHtml(entry, index)}
                 </tr>`;
             } else {
                 // Mapped row — read-only with edit button
@@ -1651,6 +1672,7 @@ function renderAdminResolutionTable() {
                             </button>
                         </div>
                     </td>
+                    ${vdVendorCellHtml(entry, index)}
                 </tr>`;
             }
         } else {
@@ -1689,12 +1711,192 @@ function renderAdminResolutionTable() {
                         </span>
                     </div>
                 </td>
+                ${vdVendorCellHtml(entry, index)}
             </tr>`;
         }
     });
 
     tbody.innerHTML = html;
+    const table = tbody.closest('table');
+    if (table) table.classList.toggle('show-vendor-col', state.adminResolutionTab === 'vendordirect');
     updateAdminResolutionStatus();
+}
+
+// =====================================================
+// ADMIN: VENDOR DIRECT VENDOR OVERRIDES
+// =====================================================
+// Vendor Direct only. Lets one Vendor Direct manufacturer name (e.g. "Sony
+// Pro") put a specific Zoho Vendor on its quote lines, even when several
+// names map to the same Zoho Manufacturer. Stored in Supabase
+// vendor_direct_vendor_overrides; the widget sends the chosen vendor with each
+// product and Client Script v1.27+ uses it. Names without an override keep
+// using the Zoho Manufacturer's Vendor_Direct_Account. Saved immediately,
+// separately from Save Mappings.
+
+const VD_VENDOR_TABLE = 'vendor_direct_vendor_overrides';
+let vdVendorSearchTimer = null;
+
+function supabaseHeaders(extra) {
+    return Object.assign({
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+    }, extra || {});
+}
+
+// Map of lower-cased Vendor Direct manufacturer name -> {id, name}
+async function loadVdVendorOverrides() {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${VD_VENDOR_TABLE}?select=vd_manufacturer,zoho_vendor_id,zoho_vendor_name`, {
+        headers: supabaseHeaders()
+    });
+    if (!res.ok) throw new Error(`Vendor overrides failed to load: ${res.status}`);
+    const rows = await res.json();
+    const map = new Map();
+    rows.forEach(r => map.set(String(r.vd_manufacturer).toLowerCase(), { id: String(r.zoho_vendor_id), name: r.zoho_vendor_name }));
+    return map;
+}
+
+function vdVendorCellHtml(entry, index) {
+    if (state.adminResolutionTab !== 'vendordirect') return '<td class="td-vendor"></td>';
+    const override = (state.vdVendorOverrides || new Map()).get(entry.name.toLowerCase());
+
+    if (state.vdVendorEditing === index) {
+        return `<td class="td-vendor">
+            <div class="vd-vendor-editor">
+                <div class="vd-vendor-search-row">
+                    <input type="text" class="mfr-input" id="vd-vendor-input-${index}" placeholder="Search Zoho vendors..." oninput="handleVdVendorSearchInput(${index})" autocomplete="off">
+                    <button class="admin-res-cancel-btn" onclick="cancelVdVendorEdit()" title="Cancel">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="vd-vendor-results" id="vd-vendor-results-${index}"><span class="vd-vendor-hint">Type at least 2 letters</span></div>
+            </div>
+        </td>`;
+    }
+
+    if (override) {
+        return `<td class="td-vendor">
+            <div class="vd-vendor-cell">
+                <span class="vd-vendor-name" title="${escapeHtml(override.name)}">${escapeHtml(override.name)}</span>
+                <button class="admin-res-edit-btn" onclick="startVdVendorEdit(${index})" title="Change vendor">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button class="admin-res-edit-btn" onclick="clearVdVendorOverride(${index})" title="Clear (use manufacturer default)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+        </td>`;
+    }
+
+    return `<td class="td-vendor">
+        <div class="vd-vendor-cell">
+            <span class="vd-vendor-default" title="Uses the Zoho Manufacturer's Vendor Direct Account">Manufacturer default</span>
+            <button class="vd-vendor-set-btn" onclick="startVdVendorEdit(${index})">Set vendor</button>
+        </div>
+    </td>`;
+}
+
+function startVdVendorEdit(index) {
+    state.vdVendorEditing = index;
+    state.vdVendorResults = [];
+    renderAdminResolutionTable();
+    const input = document.getElementById(`vd-vendor-input-${index}`);
+    if (input) input.focus();
+}
+
+function cancelVdVendorEdit() {
+    state.vdVendorEditing = null;
+    state.vdVendorResults = [];
+    renderAdminResolutionTable();
+}
+
+function handleVdVendorSearchInput(index) {
+    clearTimeout(vdVendorSearchTimer);
+    const input = document.getElementById(`vd-vendor-input-${index}`);
+    const query = input ? input.value.trim() : '';
+    const resultsEl = document.getElementById(`vd-vendor-results-${index}`);
+    if (query.length < 2) {
+        if (resultsEl) resultsEl.innerHTML = '<span class="vd-vendor-hint">Type at least 2 letters</span>';
+        return;
+    }
+    vdVendorSearchTimer = setTimeout(() => searchVdVendors(index, query), 300);
+}
+
+// Zoho Vendors search through the embedded-app SDK (same SDK the resolution
+// panel uses for ZOHO.CRM.API.getAllRecords on Manufacturers).
+async function searchVdVendors(index, query) {
+    const resultsEl = document.getElementById(`vd-vendor-results-${index}`);
+    if (!resultsEl) return;
+    if (typeof ZOHO === 'undefined' || !ZOHO.CRM || !ZOHO.CRM.API || !ZOHO.CRM.API.searchRecord) {
+        resultsEl.innerHTML = '<span class="vd-vendor-hint vd-vendor-error">Vendor search only works inside Zoho.</span>';
+        return;
+    }
+    resultsEl.innerHTML = '<span class="vd-vendor-hint">Searching...</span>';
+    try {
+        const resp = await ZOHO.CRM.API.searchRecord({ Entity: 'Vendors', Type: 'word', Query: query });
+        const records = (resp && Array.isArray(resp.data)) ? resp.data : [];
+        // Ignore a slow response for an older query
+        const input = document.getElementById(`vd-vendor-input-${index}`);
+        if (!input || input.value.trim() !== query) return;
+        state.vdVendorResults = records
+            .filter(r => r && r.id && r.Vendor_Name)
+            .map(r => ({ id: String(r.id), name: r.Vendor_Name }))
+            .slice(0, 25);
+        if (state.vdVendorResults.length === 0) {
+            resultsEl.innerHTML = '<span class="vd-vendor-hint">No vendors found</span>';
+            return;
+        }
+        resultsEl.innerHTML = state.vdVendorResults.map((v, i) =>
+            `<button class="vd-vendor-option" onclick="saveVdVendorOverride(${index}, ${i})">${escapeHtml(v.name)}</button>`
+        ).join('');
+    } catch (err) {
+        console.error('[VDVendor] Search failed:', err);
+        resultsEl.innerHTML = '<span class="vd-vendor-hint vd-vendor-error">Search failed - see console</span>';
+    }
+}
+
+async function saveVdVendorOverride(index, resultIndex) {
+    const entry = state.adminResolutionData[index];
+    const vendor = (state.vdVendorResults || [])[resultIndex];
+    if (!entry || !vendor) return;
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${VD_VENDOR_TABLE}?on_conflict=vd_manufacturer`, {
+            method: 'POST',
+            headers: supabaseHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+            body: JSON.stringify([{
+                vd_manufacturer: entry.name,
+                zoho_vendor_id: vendor.id,
+                zoho_vendor_name: vendor.name,
+                updated_at: new Date().toISOString()
+            }])
+        });
+        if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+        state.vdVendorOverrides.set(entry.name.toLowerCase(), { id: vendor.id, name: vendor.name });
+        state.vdVendorEditing = null;
+        renderAdminResolutionTable();
+        showStatus(`${escapeHtml(entry.name)} items will use vendor ${escapeHtml(vendor.name)}`, 'success');
+    } catch (err) {
+        console.error('[VDVendor] Save failed:', err);
+        showStatus('Could not save vendor: ' + escapeHtml(err.message), 'error');
+    }
+}
+
+async function clearVdVendorOverride(index) {
+    const entry = state.adminResolutionData[index];
+    if (!entry) return;
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/${VD_VENDOR_TABLE}?vd_manufacturer=eq.${encodeURIComponent(entry.name)}`, {
+            method: 'DELETE',
+            headers: supabaseHeaders({ 'Prefer': 'return=minimal' })
+        });
+        if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+        state.vdVendorOverrides.delete(entry.name.toLowerCase());
+        renderAdminResolutionTable();
+        showStatus(`${escapeHtml(entry.name)} items will use the manufacturer's default vendor`, 'success');
+    } catch (err) {
+        console.error('[VDVendor] Clear failed:', err);
+        showStatus('Could not clear vendor: ' + escapeHtml(err.message), 'error');
+    }
 }
 
 // =====================================================
@@ -6345,6 +6547,17 @@ async function submitQueue() {
 
     const productsWithMissingMfr = [];
 
+    // Vendor Direct only: vendor chosen per Vendor Direct manufacturer name on
+    // the admin Name Resolution page (Client Script v1.27+ applies it).
+    let vdVendorOverrides = new Map();
+    if (productsToFormat.some(p => p._source === 'vendordirect')) {
+        try {
+            vdVendorOverrides = await loadVdVendorOverrides();
+        } catch (err) {
+            console.warn('[SubmitQueue] Vendor overrides unavailable, using manufacturer defaults:', err);
+        }
+    }
+
     const formattedProducts = productsToFormat.map(product => {
         const pricingData = product.pricingData || state.pricingData?.[product.ingramPartNumber] || {};
         const msrp = pricingData?.pricing?.retailPrice || product.retailPrice || null;
@@ -6447,7 +6660,9 @@ async function submitQueue() {
 
         // Vendor Direct format
         if (product._source === 'vendordirect') {
+            const vdVendor = vdVendorOverrides.get(String(originalMfr || '').toLowerCase());
             return {
+                ...(vdVendor && { Vendor_Override_Id: vdVendor.id, Vendor_Override_Name: vdVendor.name }),
                 Product_Code: product.vendorPartNumber || '',
                 Product_Name: product.description || '',
                 Manufacturer: normalizedMfr,

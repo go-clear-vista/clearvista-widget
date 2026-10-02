@@ -8202,3 +8202,87 @@ body.eng-col-resizing {
     font-size: var(--font-size-xs);
     color: var(--color-text-secondary);
 }
+
+/* =====================================================
+   Admin Name Resolution - Vendor column (Vendor Direct tab only)
+   ===================================================== */
+.admin-resolution-table .th-vendor,
+.admin-resolution-table .td-vendor { display: none; }
+.admin-resolution-table.show-vendor-col .th-vendor,
+.admin-resolution-table.show-vendor-col .td-vendor { display: table-cell; }
+.admin-resolution-table.show-vendor-col .th-vendor { width: 24%; }
+.admin-resolution-table.show-vendor-col .td-vendor { vertical-align: top; padding-top: 6px; }
+
+.vd-vendor-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 28px;
+}
+.vd-vendor-name {
+    font-size: var(--font-size-sm);
+    color: var(--color-accent-dark);
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.vd-vendor-default {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    font-style: italic;
+    flex: 1;
+}
+.vd-vendor-set-btn {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.vd-vendor-set-btn:hover {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+}
+.vd-vendor-search-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.vd-vendor-results {
+    display: flex;
+    flex-direction: column;
+    margin-top: 4px;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface, #fff);
+}
+.vd-vendor-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-size: var(--font-size-sm);
+    padding: 6px 8px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--color-border-light);
+    cursor: pointer;
+    color: var(--color-text);
+}
+.vd-vendor-option:last-child { border-bottom: none; }
+.vd-vendor-option:hover { background: var(--color-border-light); }
+.vd-vendor-hint {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    padding: 6px 8px;
+}
+.vd-vendor-error { color: var(--color-error); }
