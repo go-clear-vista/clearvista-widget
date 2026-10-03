@@ -4088,9 +4088,43 @@ function mapUniversalRow(distributor, row) {
     }
 }
 
+// Part number searches that ignore punctuation, spaces and case ("smtl" finds
+// "SM-T-L"), via database functions backed by trigram indexes on the
+// normalized part numbers (migration 20261002000000). Returns the rows (same
+// shape as select=* on the distributor's table), or null if the function is
+// unavailable so the caller can fall back to its direct table query.
+async function callPartSearchRpc(fnName, body) {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+            console.warn(`[PartSearch] ${fnName} unavailable (${res.status}), using direct query`);
+            return null;
+        }
+        const data = await res.json();
+        if (!Array.isArray(data)) return null;
+        // SETOF jsonb: unwrap if PostgREST keyed each value by the function name
+        return data.map(r => (r && Object.keys(r).length === 1 && r[fnName] !== undefined) ? r[fnName] : r);
+    } catch (err) {
+        console.warn(`[PartSearch] ${fnName} failed, using direct query:`, err);
+        return null;
+    }
+}
+
 async function fetchUniversalDistributorRows(distributor, skuPattern) {
     const cfg = SKU_LOOKUP_TABLES[distributor];
     if (!cfg) return [];
+    const rpcRows = await callPartSearchRpc('universal_part_search', {
+        p_distributor: distributor, p_term: skuPattern, p_limit: UNIVERSAL_SEARCH_ROWS_PER_DISTRIBUTOR
+    });
+    if (rpcRows) return rpcRows;
     const encodedPattern = encodeURIComponent(`%${skuPattern}%`);
     const orClause = cfg.columns.map(c => `${c}.ilike.${encodedPattern}`).join(',');
     const url = `${SUPABASE_URL}/rest/v1/${cfg.table}?select=*&or=(${orClause})&limit=${UNIVERSAL_SEARCH_ROWS_PER_DISTRIBUTOR}`;
@@ -4182,16 +4216,23 @@ async function lookupManufacturersFromSKU(skuPattern) {
             // Ingram / ADI / Almo / Vendor Direct / Teledynamics: search the
             // correct distributor's table by SKU pattern across all manufacturers
             const { table, columns } = SKU_LOOKUP_TABLES[state.currentDistributor];
-            const encodedPattern = encodeURIComponent(`%${skuPattern}%`);
-            const orClause = columns.map(c => `${c}.ilike.${encodedPattern}`).join(',');
-            const url = `${SUPABASE_URL}/rest/v1/${table}?select=manufacturer&or=(${orClause})&manufacturer=not.is.null&limit=200`;
-            const response = await fetch(url, {
-                headers: {
-                    'apikey': SUPABASE_ANON_KEY,
-                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-                }
+            let rows = await callPartSearchRpc('universal_part_search', {
+                p_distributor: state.currentDistributor, p_term: skuPattern, p_limit: 200
             });
-            const rows = await response.json();
+            if (rows) {
+                rows = rows.filter(r => r && r.manufacturer);
+            } else {
+                const encodedPattern = encodeURIComponent(`%${skuPattern}%`);
+                const orClause = columns.map(c => `${c}.ilike.${encodedPattern}`).join(',');
+                const url = `${SUPABASE_URL}/rest/v1/${table}?select=manufacturer&or=(${orClause})&manufacturer=not.is.null&limit=200`;
+                const response = await fetch(url, {
+                    headers: {
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    }
+                });
+                rows = await response.json();
+            }
 
             if (Array.isArray(rows)) {
                 const vendorCounts = {};
@@ -11377,6 +11418,10 @@ async function engQuoteLookupAll() {
 async function engQuoteFetchRows(dist, values) {
     const table = SKU_LOOKUP_TABLES[dist]?.table;
     if (!table || !values.length) return [];
+    // Exact match ignoring punctuation and case, so a BOM's "FW85BZ40L" also
+    // finds a sheet's "FW-85BZ40L" (the spelling variants below can't add dashes)
+    const rpcRows = await callPartSearchRpc('part_lookup_exact', { p_distributor: dist, p_terms: values, p_limit: 1000 });
+    if (rpcRows) return rpcRows;
     const quote = v => '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
     const likeQuote = v => quote(v.replace(/[%_\\]/g, '\\$&'));
     const list = `(${values.map(quote).join(',')})`;
