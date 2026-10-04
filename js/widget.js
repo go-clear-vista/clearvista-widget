@@ -10202,6 +10202,13 @@ function bulkMapRpcRowToProduct(row, distributor) {
     }
 }
 
+// Key for matching database rows back to the uploaded list. The bulk lookups
+// fall back to a punctuation-insensitive match ("SMTL" finds "SM-T-L"), so
+// compare letters and digits only, ignoring case.
+function bulkMatchKey(value) {
+    return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 async function bulkLoadProducts() {
     if (bulkState.isLoading) return;
     if (bulkState.parsedSkus.length === 0) {
@@ -10323,9 +10330,9 @@ async function bulkLoadProducts() {
 
         // Merge in qty, resellerPrice, and msrp from file data if available
         if (bulkState.parsedFileData && bulkState.parsedFileData.length > 0) {
-            const fileDataMap = new Map(bulkState.parsedFileData.map(d => [d.mpn.trim().toUpperCase(), d]));
+            const fileDataMap = new Map(bulkState.parsedFileData.map(d => [bulkMatchKey(d.mpn), d]));
             bulkState.products.forEach(p => {
-                const fd = fileDataMap.get(p.mpn.toUpperCase());
+                const fd = fileDataMap.get(bulkMatchKey(p.mpn));
                 if (fd) {
                     if (fd.qty) p.qty = fd.qty;
                     if (fd.resellerPrice) p.resellerPrice = fd.resellerPrice;
@@ -10360,18 +10367,18 @@ async function bulkLoadProducts() {
         if (bulkState.parsedFileData && bulkState.parsedFileData.length > 0) {
             const orderMap = new Map();
             bulkState.parsedFileData.forEach((item, index) => {
-                orderMap.set(item.mpn.trim().toUpperCase(), index);
+                orderMap.set(bulkMatchKey(item.mpn), index);
             });
             bulkState.products.sort((a, b) => {
-                const orderA = orderMap.get((a.mpn || '').toUpperCase());
-                const orderB = orderMap.get((b.mpn || '').toUpperCase());
+                const orderA = orderMap.get(bulkMatchKey(a.mpn));
+                const orderB = orderMap.get(bulkMatchKey(b.mpn));
                 return (orderA !== undefined ? orderA : 999999) - (orderB !== undefined ? orderB : 999999);
             });
         }
 
         // Identify unmatched MPNs
-        const matchedMpns = new Set(bulkState.products.map(p => p.mpn.toUpperCase()));
-        bulkState.unmatchedMpns = uniqueMpns.filter(m => !matchedMpns.has(m));
+        const matchedMpns = new Set(bulkState.products.map(p => bulkMatchKey(p.mpn)));
+        bulkState.unmatchedMpns = uniqueMpns.filter(m => !matchedMpns.has(bulkMatchKey(m)));
 
         // Show unmatched MPNs if any
         if (bulkState.unmatchedMpns.length > 0) {
