@@ -2373,6 +2373,26 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Zoho has started rendering the popup frame at the browser's default
+// 150 px iframe height, which hides everything below the header. When the
+// frame is that short, ask Zoho to size it to the popup (1200 x 1000, same
+// as the Client Script's openPopup call).
+function fitZohoFrame() {
+    console.log('[Frame] viewport ' + window.innerWidth + 'x' + window.innerHeight);
+    if (window.innerHeight >= 400) return;
+    try {
+        if (!ZOHO.CRM || !ZOHO.CRM.UI || typeof ZOHO.CRM.UI.Resize !== 'function') {
+            console.warn('[Frame] ZOHO.CRM.UI.Resize not available');
+            return;
+        }
+        ZOHO.CRM.UI.Resize({ height: "1000", width: "1200" })
+            .then(r => console.log('[Frame] Resize result:', r, 'viewport now ' + window.innerHeight))
+            .catch(e => console.warn('[Frame] Resize failed:', e));
+    } catch (e) {
+        console.warn('[Frame] Resize threw:', e);
+    }
+}
+
 function initZohoSDK() {
     if (typeof ZOHO === 'undefined') {
         console.warn('ZOHO SDK not loaded. Running in standalone mode.');
@@ -2384,6 +2404,7 @@ function initZohoSDK() {
     ZOHO.embeddedApp.on("PageLoad", function(data) {
         console.log('PageLoad event received:', data);
         state.parentContext = data;
+        fitZohoFrame();
 
         // Store pre-fetched manufacturers from Client Script (Phase 3)
         // PageLoad receives the full openPopup second arg: {data: {...}, wait: true}
