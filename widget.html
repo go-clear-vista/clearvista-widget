@@ -23,26 +23,31 @@
         <header class="widget-header">
             <div class="header-left">
                 <img src="img/clearvista-logo.png" alt="ClearVista" class="logo">
-                <div class="connection-status">
-                    <div class="status-dot" id="statusIndicator"></div>
-                    <span id="statusText">Checking...</span>
-                    <button onclick="authenticate()" class="btn-link">Reconnect</button>
-                </div>
-                <!-- Mode Toggle -->
-                <div class="bulk-toggle" id="bulkToggle">
-                    <button class="bulk-toggle-btn" id="bulkToggleBtn" onclick="handleBulkToggleClick()">
-                        <span>Bulk Mode</span>
-                    </button>
-                    <span class="new-badge">NEW</span>
+                <!-- Connection status stacked above the mode toggle to leave room for the tabs -->
+                <div class="header-status-stack">
+                    <div class="connection-status">
+                        <div class="status-dot" id="statusIndicator"></div>
+                        <span id="statusText">Checking...</span>
+                        <button onclick="authenticate()" class="btn-link">Reconnect</button>
+                    </div>
+                    <!-- Mode Toggle -->
+                    <div class="bulk-toggle" id="bulkToggle">
+                        <button class="bulk-toggle-btn" id="bulkToggleBtn" onclick="handleBulkToggleClick()">
+                            <span>Bulk Mode</span>
+                        </button>
+                        <span class="new-badge">NEW</span>
+                    </div>
                 </div>
             </div>
             <div class="header-buttons">
+                <!-- Two rows, filled column by column: Universal Search / Vendor Direct,
+                     TD Synnex / ADI Global, Almo / Teledynamics, Ingram Micro -->
                 <div class="distributor-tabs">
+                    <button class="tab-btn" data-distributor="universal" onclick="selectDistributor('universal')">
+                        <span class="tab-icon tab-icon-wide">ALL</span>Universal Search
+                    </button>
                     <button class="tab-btn" data-distributor="vendordirect" onclick="selectDistributor('vendordirect')">
                         <span class="tab-icon">VD</span>Vendor Direct
-                    </button>
-                    <button class="tab-btn active" data-distributor="ingram" onclick="selectDistributor('ingram')">
-                        <span class="tab-icon">IM</span>Ingram Micro
                     </button>
                     <button class="tab-btn" data-distributor="tdsynnex" onclick="selectDistributor('tdsynnex')">
                         <span class="tab-icon">TS</span>TD Synnex
@@ -56,8 +61,8 @@
                     <button class="tab-btn" data-distributor="teledynamics" onclick="selectDistributor('teledynamics')">
                         <span class="tab-icon">TD</span>Teledynamics
                     </button>
-                    <button class="tab-btn" data-distributor="universal" onclick="selectDistributor('universal')">
-                        <span class="tab-icon tab-icon-wide">ALL</span>Universal Search
+                    <button class="tab-btn active" data-distributor="ingram" onclick="selectDistributor('ingram')">
+                        <span class="tab-icon">IM</span>Ingram Micro
                     </button>
                 </div>
             </div>
