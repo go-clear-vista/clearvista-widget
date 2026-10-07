@@ -2393,6 +2393,32 @@ function fitZohoFrame() {
     }
 }
 
+// The frame can also shrink after the widget has loaded, so re-check when
+// the viewport changes. Capped so a Resize that Zoho ignores can't loop.
+let frameRefitAttempts = 0;
+let frameRefitTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(frameRefitTimer);
+    frameRefitTimer = setTimeout(() => {
+        if (window.innerHeight >= 400 || frameRefitAttempts >= 3) return;
+        frameRefitAttempts++;
+        fitZohoFrame();
+    }, 250);
+});
+
+// Zoho's SDK tells CRM the widget has closed from an 'unload' listener, but
+// Chrome now blocks 'unload' in this frame ("Permissions policy violation:
+// unload is not allowed"). CRM then keeps the closed widget registered, so
+// the next open can fail or take several clicks. 'pagehide' still fires in
+// Chrome when the popup closes, so send the same DEREGISTER from there.
+window.addEventListener('pagehide', () => {
+    try {
+        if (typeof ZSDKMessageManager !== 'undefined' && typeof ZSDKMessageManager.DERegisterApp === 'function') {
+            ZSDKMessageManager.DERegisterApp();
+        }
+    } catch (e) { /* frame is going away; nothing to report to */ }
+});
+
 function initZohoSDK() {
     if (typeof ZOHO === 'undefined') {
         console.warn('ZOHO SDK not loaded. Running in standalone mode.');
