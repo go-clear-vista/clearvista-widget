@@ -2400,7 +2400,10 @@ function fitZohoFrame() {
     // been seen yet.
     const maxHeight = Math.max(400, Math.min(1000, window.outerHeight - 320));
     height = height ? Math.min(height, maxHeight) : maxHeight;
-    const width = window.innerWidth;
+    // Zoho's popup container is 4 px narrower than the 1200 px popup the
+    // Client Script requests (measured: 1196 px). A 1198 px frame overflowed
+    // it by 2 px, which added both scroll bars.
+    const width = Math.min(window.innerWidth, 1196);
     try {
         if (!ZOHO.CRM || !ZOHO.CRM.UI || typeof ZOHO.CRM.UI.Resize !== 'function') {
             console.warn('[Frame] ZOHO.CRM.UI.Resize not available');
