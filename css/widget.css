@@ -212,32 +212,15 @@ body {
     overflow: hidden;
 }
 
-/* Connection status above the Bulk Mode toggle */
-.header-status-stack {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
-}
-
-.header-status-stack .bulk-toggle {
-    padding: 2px var(--space-2);
-}
-
-/* Two rows filled column by column, so all distributors fit without
-   scrolling; horizontal scroll remains only as a fallback for very narrow
-   windows. */
 .distributor-tabs {
-    display: grid;
-    grid-auto-flow: column;
-    grid-template-rows: repeat(2, auto);
-    gap: 3px var(--space-1);
-    padding: 3px 0;
+    display: flex;
+    gap: var(--space-1);
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+    padding-bottom: 1px;
 }
 
 .distributor-tabs::-webkit-scrollbar {
