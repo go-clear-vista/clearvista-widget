@@ -2373,6 +2373,61 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Zoho has started rendering the popup frame at the browser's default
+// 150 px iframe height, which hides everything below the header. When the
+// frame is that short, ask Zoho to size it back to the popup's real area.
+// The popup is clamped to the screen (often ~1200 x 700, not the 1200 x 1000
+// the Client Script requests), so resize to the last full-size viewport we
+// saw, remembered across opens, rather than a fixed size that overflows the
+// popup and adds scroll bars.
+const FRAME_SIZE_KEY = 'cv_widget_frame_size';
+
+function fitZohoFrame() {
+    console.log('[Frame] viewport ' + window.innerWidth + 'x' + window.innerHeight);
+    if (window.innerHeight >= 400) {
+        try {
+            localStorage.setItem(FRAME_SIZE_KEY, JSON.stringify({ h: window.innerHeight }));
+        } catch (e) { /* storage unavailable */ }
+        return;
+    }
+    let height = null;
+    try {
+        const saved = JSON.parse(localStorage.getItem(FRAME_SIZE_KEY) || 'null');
+        if (saved && saved.h >= 400) height = saved.h;
+    } catch (e) { /* storage unavailable */ }
+    // Never taller than the browser window minus browser chrome and Zoho's
+    // popup margins; this is also the estimate when no full-size frame has
+    // been seen yet.
+    const maxHeight = Math.max(400, Math.min(1000, window.outerHeight - 320));
+    height = height ? Math.min(height, maxHeight) : maxHeight;
+    const width = window.innerWidth;
+    try {
+        if (!ZOHO.CRM || !ZOHO.CRM.UI || typeof ZOHO.CRM.UI.Resize !== 'function') {
+            console.warn('[Frame] ZOHO.CRM.UI.Resize not available');
+            return;
+        }
+        console.log('[Frame] resizing to ' + width + 'x' + height);
+        ZOHO.CRM.UI.Resize({ height: String(height), width: String(width) })
+            .then(r => console.log('[Frame] Resize result:', r, 'viewport now ' + window.innerHeight))
+            .catch(e => console.warn('[Frame] Resize failed:', e));
+    } catch (e) {
+        console.warn('[Frame] Resize threw:', e);
+    }
+}
+
+// The frame can also shrink after the widget has loaded, so re-check when
+// the viewport changes. Capped so a Resize that Zoho ignores can't loop.
+let frameRefitAttempts = 0;
+let frameRefitTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(frameRefitTimer);
+    frameRefitTimer = setTimeout(() => {
+        if (window.innerHeight >= 400 || frameRefitAttempts >= 3) return;
+        frameRefitAttempts++;
+        fitZohoFrame();
+    }, 250);
+});
+
 function initZohoSDK() {
     if (typeof ZOHO === 'undefined') {
         console.warn('ZOHO SDK not loaded. Running in standalone mode.');
@@ -2384,6 +2439,7 @@ function initZohoSDK() {
     ZOHO.embeddedApp.on("PageLoad", function(data) {
         console.log('PageLoad event received:', data);
         state.parentContext = data;
+        fitZohoFrame();
 
         // Store pre-fetched manufacturers from Client Script (Phase 3)
         // PageLoad receives the full openPopup second arg: {data: {...}, wait: true}
