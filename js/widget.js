@@ -2381,29 +2381,38 @@ document.addEventListener('DOMContentLoaded', function() {
 // saw, remembered across opens, rather than a fixed size that overflows the
 // popup and adds scroll bars.
 const FRAME_SIZE_KEY = 'cv_widget_frame_size';
+// Zoho's popup container is 4 px narrower than the 1200 px popup the Client
+// Script requests (measured: 1196 px), but Zoho sizes the frame to 1198 px.
+// The 2 px overflow adds both scroll bars, so a full-height frame that is
+// too wide also gets resized.
+const FRAME_MAX_WIDTH = 1196;
+
+function frameNeedsFit() {
+    return window.innerHeight < 400 || window.innerWidth > FRAME_MAX_WIDTH;
+}
 
 function fitZohoFrame() {
     console.log('[Frame] viewport ' + window.innerWidth + 'x' + window.innerHeight);
-    if (window.innerHeight >= 400) {
-        try {
-            localStorage.setItem(FRAME_SIZE_KEY, JSON.stringify({ h: window.innerHeight }));
-        } catch (e) { /* storage unavailable */ }
-        return;
-    }
     let height = null;
-    try {
-        const saved = JSON.parse(localStorage.getItem(FRAME_SIZE_KEY) || 'null');
-        if (saved && saved.h >= 400) height = saved.h;
-    } catch (e) { /* storage unavailable */ }
-    // Never taller than the browser window minus browser chrome and Zoho's
-    // popup margins; this is also the estimate when no full-size frame has
-    // been seen yet.
-    const maxHeight = Math.max(400, Math.min(1000, window.outerHeight - 320));
-    height = height ? Math.min(height, maxHeight) : maxHeight;
-    // Zoho's popup container is 4 px narrower than the 1200 px popup the
-    // Client Script requests (measured: 1196 px). A 1198 px frame overflowed
-    // it by 2 px, which added both scroll bars.
-    const width = Math.min(window.innerWidth, 1196);
+    if (window.innerHeight >= 400) {
+        height = window.innerHeight;
+        try {
+            localStorage.setItem(FRAME_SIZE_KEY, JSON.stringify({ h: height }));
+        } catch (e) { /* storage unavailable */ }
+    }
+    if (!frameNeedsFit()) return;
+    if (!height) {
+        try {
+            const saved = JSON.parse(localStorage.getItem(FRAME_SIZE_KEY) || 'null');
+            if (saved && saved.h >= 400) height = saved.h;
+        } catch (e) { /* storage unavailable */ }
+        // Never taller than the browser window minus browser chrome and
+        // Zoho's popup margins; this is also the estimate when no full-size
+        // frame has been seen yet.
+        const maxHeight = Math.max(400, Math.min(1000, window.outerHeight - 320));
+        height = height ? Math.min(height, maxHeight) : maxHeight;
+    }
+    const width = Math.min(window.innerWidth, FRAME_MAX_WIDTH);
     try {
         if (!ZOHO.CRM || !ZOHO.CRM.UI || typeof ZOHO.CRM.UI.Resize !== 'function') {
             console.warn('[Frame] ZOHO.CRM.UI.Resize not available');
@@ -2425,7 +2434,7 @@ let frameRefitTimer = null;
 window.addEventListener('resize', () => {
     clearTimeout(frameRefitTimer);
     frameRefitTimer = setTimeout(() => {
-        if (window.innerHeight >= 400 || frameRefitAttempts >= 3) return;
+        if (!frameNeedsFit() || frameRefitAttempts >= 3) return;
         frameRefitAttempts++;
         fitZohoFrame();
     }, 250);
@@ -7855,18 +7864,47 @@ function addSelectedProducts() {
     addSelectedToQueue();
 }
 
-function closeWidget() {
-    if (typeof $Client !== 'undefined') {
-        $Client.close({ cancelled: true, products: [] });
+// Closing with $Client.close() leaves Zoho unable to reopen the popup until
+// the page is reloaded, while closing it the way Esc does still lets it
+// reopen. So close with ZOHO.CRM.UI.Popup.close() first. If the popup is
+// still open a moment later (or that call isn't available), fall back to
+// $Client.close(). Once the popup closes this frame is gone, so the
+// fallback timer never fires.
+function closePopupWithoutProducts() {
+    let fellBack = false;
+    const fallback = () => {
+        if (fellBack) return;
+        fellBack = true;
+        if (typeof $Client !== 'undefined') {
+            console.log('[Close] falling back to $Client.close');
+            $Client.close({ cancelled: true, products: [] });
+        }
+    };
+    try {
+        if (typeof ZOHO !== 'undefined' && ZOHO.CRM && ZOHO.CRM.UI && ZOHO.CRM.UI.Popup &&
+            typeof ZOHO.CRM.UI.Popup.close === 'function') {
+            console.log('[Close] ZOHO.CRM.UI.Popup.close');
+            Promise.resolve(ZOHO.CRM.UI.Popup.close()).catch(e => {
+                console.warn('[Close] Popup.close failed:', e);
+                fallback();
+            });
+            setTimeout(fallback, 1500);
+            return;
+        }
+    } catch (e) {
+        console.warn('[Close] Popup.close threw:', e);
     }
+    fallback();
+}
+
+function closeWidget() {
+    closePopupWithoutProducts();
 }
 
 function cancelSelection() {
     console.log('Cancel clicked');
 
-    if (typeof $Client !== 'undefined') {
-        $Client.close({ cancelled: true, products: [] });
-    }
+    closePopupWithoutProducts();
 
     state.selectedProducts.clear();
     state.queuedProducts = [];
