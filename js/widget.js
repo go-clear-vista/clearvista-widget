@@ -1445,7 +1445,7 @@ async function loadAdminResolutionData(dist) {
 
         if (!response.ok) throw new Error(`RPC failed: ${response.status}`);
         const data = await response.json();
-        const allNames = data.map(r => r[fieldName]).filter(Boolean).sort();
+        const allNames = data.map(r => r[fieldName]).filter(Boolean).sort(compareNamesCaseInsensitive);
 
         // Reload mappings to ensure fresh data
         await loadManufacturerMappings();
@@ -1497,7 +1497,7 @@ async function loadAdminResolutionData(dist) {
             (state.manufacturerMappingsData || []).forEach(mapping => {
                 if (mapping.canonical_name) canonicalSet.add(mapping.canonical_name);
             });
-            state.adminCanonicalNames = [...canonicalSet].sort();
+            state.adminCanonicalNames = [...canonicalSet].sort(compareNamesCaseInsensitive);
         }
 
         state.adminResolutions = new Map();
@@ -2461,7 +2461,7 @@ function initZohoSDK() {
             state.prefetchedManufacturers = pageData.manufacturers.map(m => {
                 // Handle both {id, name} objects and plain strings
                 return typeof m === 'string' ? m : (m.name || m.Name || '');
-            }).filter(name => name.length > 0).sort();
+            }).filter(name => name.length > 0).sort(compareNamesCaseInsensitive);
             console.log(`[MfrResolution] Received ${state.prefetchedManufacturers.length} manufacturers from Zoho`);
         }
 
@@ -2478,7 +2478,7 @@ function initZohoSDK() {
         if (eventData.manufacturers && Array.isArray(eventData.manufacturers) && state.prefetchedManufacturers.length === 0) {
             state.prefetchedManufacturers = eventData.manufacturers.map(m => {
                 return typeof m === 'string' ? m : (m.name || m.Name || '');
-            }).filter(name => name.length > 0).sort();
+            }).filter(name => name.length > 0).sort(compareNamesCaseInsensitive);
             console.log(`[MfrResolution] Received ${state.prefetchedManufacturers.length} manufacturers from NotifyAndWait`);
         }
 
@@ -5785,7 +5785,7 @@ async function showMfrResolutionPanel(unresolvedList) {
             state.prefetchedManufacturers = allRecords
                 .map(record => record.Name || '')
                 .filter(name => name.length > 0)
-                .sort();
+                .sort(compareNamesCaseInsensitive);
             console.log(`[MfrResolution] Fetched ${state.prefetchedManufacturers.length} manufacturers from Zoho (${page - 1} pages)`);
         } catch (error) {
             console.warn('[MfrResolution] Failed to fetch manufacturers from Zoho:', error);
@@ -6174,6 +6174,14 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/**
+ * Alphabetical, ignoring case. Plain .sort() puts every capital before every
+ * lowercase letter, so "ADI PRO" landed above "Absen" instead of beside "Adi Global".
+ */
+function compareNamesCaseInsensitive(a, b) {
+    return a.localeCompare(b, undefined, { sensitivity: 'base' });
 }
 
 /**
