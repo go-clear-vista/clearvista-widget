@@ -7872,47 +7872,18 @@ function addSelectedProducts() {
     addSelectedToQueue();
 }
 
-// Closing with $Client.close() leaves Zoho unable to reopen the popup until
-// the page is reloaded, while closing it the way Esc does still lets it
-// reopen. So close with ZOHO.CRM.UI.Popup.close() first. If the popup is
-// still open a moment later (or that call isn't available), fall back to
-// $Client.close(). Once the popup closes this frame is gone, so the
-// fallback timer never fires.
-function closePopupWithoutProducts() {
-    let fellBack = false;
-    const fallback = () => {
-        if (fellBack) return;
-        fellBack = true;
-        if (typeof $Client !== 'undefined') {
-            console.log('[Close] falling back to $Client.close');
-            $Client.close({ cancelled: true, products: [] });
-        }
-    };
-    try {
-        if (typeof ZOHO !== 'undefined' && ZOHO.CRM && ZOHO.CRM.UI && ZOHO.CRM.UI.Popup &&
-            typeof ZOHO.CRM.UI.Popup.close === 'function') {
-            console.log('[Close] ZOHO.CRM.UI.Popup.close');
-            Promise.resolve(ZOHO.CRM.UI.Popup.close()).catch(e => {
-                console.warn('[Close] Popup.close failed:', e);
-                fallback();
-            });
-            setTimeout(fallback, 1500);
-            return;
-        }
-    } catch (e) {
-        console.warn('[Close] Popup.close threw:', e);
-    }
-    fallback();
-}
-
 function closeWidget() {
-    closePopupWithoutProducts();
+    if (typeof $Client !== 'undefined') {
+        $Client.close({ cancelled: true, products: [] });
+    }
 }
 
 function cancelSelection() {
     console.log('Cancel clicked');
 
-    closePopupWithoutProducts();
+    if (typeof $Client !== 'undefined') {
+        $Client.close({ cancelled: true, products: [] });
+    }
 
     state.selectedProducts.clear();
     state.queuedProducts = [];
