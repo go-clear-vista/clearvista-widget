@@ -3646,6 +3646,48 @@ function mapTDSynnexProduct(product) {
     };
 }
 
+// Vendor Direct stores one text column per product, so most sheets only give
+// us a description, and those products are named by their part number. This
+// lists the manufacturers whose stored row already holds the sheet's real
+// product name, and where: Extron's model is kept in secondary_code; AtlasIED,
+// Listen and Snap One keep their name/title column in part_description;
+// Dbtechnologies stores "PRODUCT - DESCRIPTION" there, so its name is the part
+// before the first " - ". A newly onboarded manufacturer whose sheet has a real
+// name column needs an entry here; without one it is named by its part number.
+const VD_PRODUCT_NAME_SOURCE = {
+    'extron':              { field: 'secondary_code' },
+    'atlasied':            { field: 'part_description' },
+    'listen technologies': { field: 'part_description' },
+    'dbtechnologies':      { field: 'part_description', beforeDash: true }
+};
+// Snap One's 24 brands: "SKU Name" is stored in part_description.
+const VD_SNAP_ONE_SHEET = /^SnapOnePriceList/i;
+
+function vendorDirectProductName(row) {
+    const mpn = String(row.manufacturer_part_number || '').trim();
+    let src = VD_PRODUCT_NAME_SOURCE[String(row.manufacturer || '').toLowerCase()];
+    if (!src && VD_SNAP_ONE_SHEET.test(String(row.source_sheet || ''))) src = { field: 'part_description' };
+    let name = src ? String(row[src.field] || '').trim() : '';
+    if (name && src.beforeDash) name = name.split(' - ')[0].trim();
+    return name || mpn;
+}
+
+// Product Name sent to Zoho (and shown in the details panel). ADI and Vendor
+// Direct have no separate name field. ADI's name is its own item number (the
+// ADI SKU: filled and unique on every row, unlike the part number). Vendor
+// Direct's comes from vendorDirectProductName (arrives as product.productName).
+// The description always goes in Description. Other distributors keep their
+// description as the name.
+function quoteProductName(product) {
+    if (product._source === 'vendordirect') {
+        return product.productName || product.vendorPartNumber || product.description || '';
+    }
+    if (product._source === 'adi') {
+        return product.adiSku || product.distributorPartNumber || product.vendorPartNumber || product.description || '';
+    }
+    return product.description || '';
+}
+
 function mapADIGlobalProduct(row) {
     return {
         // Core identifiers — MPN is product_code_mpn, VPN/SKU is item
@@ -3875,6 +3917,7 @@ function mapVendorDirectProduct(row) {
 
         // Product info
         description: row.part_description || '',
+        productName: vendorDirectProductName(row),
         vendorName: row.manufacturer || '',
         category: row.category || '',
         category2: '',
@@ -6722,7 +6765,7 @@ async function submitQueue() {
         if (product._source === 'adi') {
             return {
                 Product_Code: product.vendorPartNumber || '',
-                Product_Name: product.description || '',
+                Product_Name: quoteProductName(product),
                 Manufacturer: normalizedMfr,
                 ADI_SKU: product.adiSku || product.distributorPartNumber || '',
                 MSRP: msrp,
@@ -6781,7 +6824,7 @@ async function submitQueue() {
             return {
                 ...(vdVendor && { Vendor_Override_Id: vdVendor.id, Vendor_Override_Name: vdVendor.name }),
                 Product_Code: product.vendorPartNumber || '',
-                Product_Name: product.description || '',
+                Product_Name: quoteProductName(product),
                 Manufacturer: normalizedMfr,
                 MSRP: msrp,
                 Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || null,
@@ -7505,7 +7548,7 @@ async function showProductDetails(productIndex) {
 
         // Header - Product Name
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'}
+            <strong>Product Name:</strong> ${quoteProductName(product) || 'N/A'}
         `;
 
         // Header - ADI SKU, Vendor Part, Manufacturer, Authorized
@@ -7590,7 +7633,7 @@ async function showProductDetails(productIndex) {
         const raw = product._rawProduct || {};
 
         document.getElementById('detailsProductName').innerHTML = `
-            <strong>Product Name:</strong> ${product.description || 'N/A'}
+            <strong>Product Name:</strong> ${quoteProductName(product) || 'N/A'}
         `;
 
         const skuPart = sheetOnly.skuLabel
