@@ -4450,8 +4450,12 @@ async function handleSingleManufacturerAutoSelect(manufacturer, skuValue) {
  * @param {Array} manufacturers - Array of {manufacturer_name, product_count} objects
  */
 function populateManufacturerDropdownFromSKU(manufacturers) {
-    // Store as current list and render in custom dropdown
-    currentMfrList = manufacturers;
+    // Store as current list and render in custom dropdown. The dropdown holds
+    // names; the SKU lookups return {manufacturer_name, product_count} rows.
+    currentMfrList = manufacturers
+        .map(m => (typeof m === 'string' ? m : m.manufacturer_name))
+        .filter(Boolean)
+        .sort(compareNamesCaseInsensitive);
     renderMfrDropdownOptions('');
 
     // Reset trigger text
