@@ -2053,7 +2053,7 @@ function renderResDropdownOptions(filter, selectedOverride) {
 
     if (filtered.length === 0) {
         list.innerHTML = '<div class="mfr-dropdown-empty">' +
-            (options.length === 0 ? 'No manufacturers loaded' : 'No matches found') +
+            (options.length === 0 ? 'No manufacturers loaded' : 'Not in Zoho yet - type the name in the new-name box instead') +
             '</div>';
         return;
     }
@@ -5957,6 +5957,7 @@ function renderMfrResolutionTable() {
                             <svg class="mfr-dropdown-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
                         </button>
                     </div>
+                    ${hasSimilarZohoManufacturer(mfr.distributorName) ? '' : `<div class="mfr-similar-hint">No "${escapeHtml(mfr.distributorName)}" in Zoho yet. Type the name under Create New and it will be added to Zoho with the product.</div>`}
                 </td>
                 <td class="td-or"></td>
                 <td>
@@ -5982,6 +5983,25 @@ function renderMfrResolutionTable() {
     });
 
     tbody.innerHTML = html;
+}
+
+/**
+ * True when some Zoho manufacturer looks like this distributor name (one
+ * contains the other, ignoring case and punctuation), e.g. "Araknis" and
+ * "Araknis Networks". When nothing does, the dropdown has nothing to pick and
+ * the row says to use Create New. Also true when the Zoho list didn't load,
+ * since a separate warning covers that.
+ */
+function hasSimilarZohoManufacturer(name) {
+    const zoho = state.prefetchedManufacturers || [];
+    if (zoho.length === 0) return true;
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const target = norm(name);
+    if (!target) return true;
+    return zoho.some(z => {
+        const n = norm(z);
+        return n && (n.includes(target) || (n.length >= 3 && target.includes(n)));
+    });
 }
 
 /**
