@@ -3656,6 +3656,7 @@ function mapTDSynnexProduct(product) {
 // name column needs an entry here; without one it is named by its part number.
 const VD_PRODUCT_NAME_SOURCE = {
     'extron':              { field: 'secondary_code' },
+    'biamp systems':       { field: 'secondary_code' },
     'atlasied':            { field: 'part_description' },
     'listen technologies': { field: 'part_description' },
     'dbtechnologies':      { field: 'part_description', beforeDash: true }
