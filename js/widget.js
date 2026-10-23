@@ -3657,6 +3657,16 @@ function mapTDSynnexProduct(product) {
 const VD_PRODUCT_NAME_SOURCE = {
     'extron':              { field: 'secondary_code' },
     'biamp systems':       { field: 'secondary_code' },
+    // Chauvet sheets' "Item Name" (e.g. "Maverick Force 2 BeamWash") and
+    // Draper's Description ("Premier, 100", NTSC, Matt White XT1000VB").
+    'chauvet dj':          { field: 'part_description' },
+    'chauvet professional': { field: 'part_description' },
+    'iluminarc':           { field: 'part_description' },
+    'chamsys':             { field: 'part_description' },
+    'lyntec':              { field: 'part_description' },
+    'kino flo':            { field: 'part_description' },
+    'litegear':            { field: 'part_description' },
+    'draper':              { field: 'part_description' },
     'atlasied':            { field: 'part_description' },
     'listen technologies': { field: 'part_description' },
     'dbtechnologies':      { field: 'part_description', beforeDash: true }
@@ -3670,6 +3680,8 @@ function vendorDirectProductName(row) {
     if (!src && VD_SNAP_ONE_SHEET.test(String(row.source_sheet || ''))) src = { field: 'part_description' };
     let name = src ? String(row[src.field] || '').trim() : '';
     if (name && src.beforeDash) name = name.split(' - ')[0].trim();
+    // Zoho's Product Name holds 255 characters; the text still goes in Description.
+    if (name.length > 255) name = '';
     return name || mpn;
 }
 
