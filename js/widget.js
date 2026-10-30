@@ -20,6 +20,30 @@ const SUPABASE_URL = 'https://yasocskmsepalujntkau.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlhc29jc2ttc2VwYWx1am50a2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyMTIyNzUsImV4cCI6MjA4NDc4ODI3NX0.81g9I9iw1EbNOVCgOtNDTZtDavFMUbiprUMriSFd34c';
 const PAGE_SIZE = 50;
 
+// TD SYNNEX and the two Sony accounts (TD SYNNEX accounts 754510 and 753352)
+// use the same flat-file format, so the TD Synnex tab's code serves all three
+// from this table. Each has its own database objects (<rpc>_* functions and
+// view), live-stock proxy, Name Resolution alias column and Zoho source label,
+// so loading or quoting one never reads or writes another's data.
+const TD_FAMILY = {
+    tdsynnex: {
+        label: 'TD Synnex', rpc: 'tdsynnex', view: 'zoho_tdsynnex_products',
+        proxy: TDSYNNEX_PROXY_BASE, aliasField: 'td_synnex_aliases', syncSource: 'TD SYNNEX'
+    },
+    sonypro: {
+        label: 'Sony Pro', rpc: 'sonypro', view: 'zoho_sonypro_products',
+        proxy: `${SUPABASE_URL}/functions/v1/sonypro-proxy`, aliasField: 'sony_pro_aliases', syncSource: 'TD SYNNEX (Sony Pro)'
+    },
+    sonyconsumer: {
+        label: 'Sony Consumer', rpc: 'sonyconsumer', view: 'zoho_sonyconsumer_products',
+        proxy: `${SUPABASE_URL}/functions/v1/sonyconsumer-proxy`, aliasField: 'sony_consumer_aliases', syncSource: 'TD SYNNEX (Sony Consumer)'
+    }
+};
+
+function isTdFamily(dist) {
+    return Object.prototype.hasOwnProperty.call(TD_FAMILY, dist);
+}
+
 // Distributor configurations
 const DISTRIBUTORS = {
     ingram: {
@@ -31,6 +55,16 @@ const DISTRIBUTORS = {
         name: 'TD Synnex',
         apiPrefix: '/tdsynnex',
         color: '#10b981'
+    },
+    sonypro: {
+        name: 'Sony Pro',
+        apiPrefix: null,
+        color: '#2563eb'
+    },
+    sonyconsumer: {
+        name: 'Sony Consumer',
+        apiPrefix: null,
+        color: '#db2777'
     },
     adi: {
         name: 'ADI Global',
@@ -140,6 +174,8 @@ const state = {
     // Admin - Workflow Import
     workflowState: {
         tdsynnex: { running: false, runId: null, status: null, conclusion: null },
+        sonypro: { running: false, runId: null, status: null, conclusion: null },
+        sonyconsumer: { running: false, runId: null, status: null, conclusion: null },
         ingram: { running: false, runId: null, status: null, conclusion: null },
         adi: { running: false, runId: null, status: null, conclusion: null },
         almo: { running: false, runId: null, status: null, conclusion: null },
@@ -1252,7 +1288,7 @@ async function pollWorkflowStatus(dist) {
     }
 }
 
-const DIST_LABELS = { tdsynnex: 'TD Synnex', ingram: 'Ingram Micro', adi: 'ADI Global' };
+const DIST_LABELS = { tdsynnex: 'TD Synnex', sonypro: 'Sony Pro', sonyconsumer: 'Sony Consumer', ingram: 'Ingram Micro', adi: 'ADI Global' };
 
 function showWorkflowToast(dist, success, message) {
     const container = document.getElementById('workflowToastContainer');
@@ -1413,8 +1449,8 @@ async function loadAdminResolutionData(dist) {
     try {
         // Fetch all manufacturer names for this distributor
         let rpcName, fieldName;
-        if (dist === 'tdsynnex') {
-            rpcName = 'get_tdsynnex_manufacturers';
+        if (isTdFamily(dist)) {
+            rpcName = `get_${TD_FAMILY[dist].rpc}_manufacturers`;
             fieldName = 'manufacturer_name';
         } else if (dist === 'ingram') {
             rpcName = 'get_ingram_manufacturers';
@@ -1468,7 +1504,7 @@ async function loadAdminResolutionData(dist) {
 
         // Determine which alias field to check
         let aliasField;
-        if (dist === 'tdsynnex') aliasField = 'td_synnex_aliases';
+        if (isTdFamily(dist)) aliasField = TD_FAMILY[dist].aliasField;
         else if (dist === 'ingram') aliasField = 'ingram_micro_aliases';
         else if (dist === 'almo') aliasField = 'almo_aliases';
         else if (dist === 'vendordirect') aliasField = 'vendor_direct_aliases';
@@ -2953,14 +2989,14 @@ function selectDistributor(distributor) {
         if (skuSearchLabel) skuSearchLabel.innerHTML = '<span class="field-number">1</span>Part Number (searches all distributors)';
         const productsSectionUniv = document.getElementById('productsSection');
         if (productsSectionUniv) productsSectionUniv.style.display = 'none';
-    } else if (distributor === 'tdsynnex') {
-        // TD Synnex: Show cat3, hide SKU type
+    } else if (isTdFamily(distributor)) {
+        // TD Synnex / Sony Pro / Sony Consumer: Show cat3, hide SKU type
         // Restore subcategory filter (may have been hidden by ADI)
         const subCatFieldRestore = document.getElementById('subcategorySelect');
         if (subCatFieldRestore) subCatFieldRestore.closest('.filter-field').style.display = '';
         if (cat3Field) cat3Field.style.display = '';
         if (skuTypeField) skuTypeField.style.display = 'none';
-        loadTDSynnexManufacturers();
+        loadTDSynnexManufacturers(distributor);
     } else if (distributor === 'adi') {
         // ADI Global: Hide cat3, hide SKU type, hide subcategory
         if (cat3Field) cat3Field.style.display = 'none';
@@ -3170,28 +3206,29 @@ function deriveSKUType(weight, length, width, height) {
 }
 
 // Fetch warehouse availability from TD SYNNEX XML API
-async function fetchTDSynnexWarehouseAvailability(synnexSKU) {
+async function fetchTDSynnexWarehouseAvailability(synnexSKU, dist = 'tdsynnex') {
     if (!synnexSKU) return { warehouses: [], totalQty: 0, totalOnOrder: 0, status: null };
     try {
         const response = await fetch(
-            `${TDSYNNEX_PROXY_BASE}?action=availability&synnexSKU=${encodeURIComponent(synnexSKU)}`
+            `${TD_FAMILY[dist].proxy}?action=availability&synnexSKU=${encodeURIComponent(synnexSKU)}`
         );
         const data = await response.json();
         return {
             warehouses: data.warehouses || [],
             totalQty: data.totalQty || 0,
             totalOnOrder: data.totalOnOrder || 0,
-            status: data.status || null
+            status: data.status || null,
+            error: (!response.ok || data.error) ? (data.error || `HTTP ${response.status}`) : null
         };
     } catch (error) {
-        console.error('[TD SYNNEX] Warehouse fetch error:', error);
-        return { warehouses: [], totalQty: 0, totalOnOrder: 0, status: null };
+        console.error(`[${TD_FAMILY[dist].label}] Warehouse fetch error:`, error);
+        return { warehouses: [], totalQty: 0, totalOnOrder: 0, status: null, error: String(error) };
     }
 }
 
-async function searchTDSynnexManufacturers(searchTerm) {
+async function searchTDSynnexManufacturers(searchTerm, dist = 'tdsynnex') {
     const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/rpc/get_tdsynnex_manufacturers`,
+        `${SUPABASE_URL}/rest/v1/rpc/get_${TD_FAMILY[dist].rpc}_manufacturers`,
         {
             method: 'POST',
             headers: {
@@ -3276,11 +3313,11 @@ async function loadADIManufacturers() {
     }
 }
 
-async function loadTDSynnexManufacturers() {
+async function loadTDSynnexManufacturers(dist = 'tdsynnex') {
     const countEl = document.getElementById('mfrCount');
     try {
         const response = await fetch(
-            `${SUPABASE_URL}/rest/v1/rpc/get_tdsynnex_manufacturers`,
+            `${SUPABASE_URL}/rest/v1/rpc/get_${TD_FAMILY[dist].rpc}_manufacturers`,
             {
                 method: 'POST',
                 headers: {
@@ -3293,6 +3330,9 @@ async function loadTDSynnexManufacturers() {
         );
         if (!response.ok) throw new Error(`Failed: ${response.status}`);
         const data = await response.json();
+        // The user switched tabs while this was loading - don't overwrite the
+        // newer tab's manufacturer list with this one.
+        if (state.currentDistributor !== dist) return;
         currentMfrList = data.map(r => r.manufacturer_name).filter(Boolean).sort();
 
         renderMfrDropdownOptions('');
@@ -3305,7 +3345,7 @@ async function loadTDSynnexManufacturers() {
             triggerText.classList.add('placeholder');
         }
     } catch (error) {
-        console.error('[TD Synnex] Failed to load manufacturers:', error);
+        console.error(`[${TD_FAMILY[dist].label}] Failed to load manufacturers:`, error);
         currentMfrList = [];
         renderMfrDropdownOptions('');
     }
@@ -3478,19 +3518,20 @@ async function verifyIngramManufacturers(products) {
     }
 }
 
-async function loadTDSynnexCategories(manufacturer, cat1 = null, cat2 = null) {
+async function loadTDSynnexCategories(manufacturer, cat1 = null, cat2 = null, dist = 'tdsynnex') {
     // Determine which level RPC to call based on params
+    const prefix = TD_FAMILY[dist].rpc;
     let rpcName, body, descField;
     if (!cat1) {
-        rpcName = 'get_tdsynnex_categories_level1';
+        rpcName = `get_${prefix}_categories_level1`;
         body = { p_manufacturer: manufacturer };
         descField = 'cat_description_1';
     } else if (!cat2) {
-        rpcName = 'get_tdsynnex_categories_level2';
+        rpcName = `get_${prefix}_categories_level2`;
         body = { p_manufacturer: manufacturer, p_cat1: cat1 };
         descField = 'cat_description_2';
     } else {
-        rpcName = 'get_tdsynnex_categories_level3';
+        rpcName = `get_${prefix}_categories_level3`;
         body = { p_manufacturer: manufacturer, p_cat1: cat1, p_cat2: cat2 };
         descField = 'cat_description_3';
     }
@@ -3511,8 +3552,9 @@ async function loadTDSynnexCategories(manufacturer, cat1 = null, cat2 = null) {
     return (data || []).map(c => ({ name: c[descField], count: c.product_count }));
 }
 
-async function searchTDSynnexProducts(manufacturer, options = {}) {
+async function searchTDSynnexProducts(manufacturer, options = {}, dist = 'tdsynnex') {
     const { search = '', cat1 = '', cat2 = '', cat3 = '', limit = PAGE_SIZE, offset = 0 } = options;
+    const prefix = TD_FAMILY[dist].rpc;
 
     // Build RPC params — use the overload matching the category depth
     const countBody = {
@@ -3528,7 +3570,7 @@ async function searchTDSynnexProducts(manufacturer, options = {}) {
 
     // Fetch products and count in parallel
     const [productsResponse, countResponse] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/rpc/search_tdsynnex_products`, {
+        fetch(`${SUPABASE_URL}/rest/v1/rpc/search_${prefix}_products`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3537,7 +3579,7 @@ async function searchTDSynnexProducts(manufacturer, options = {}) {
             },
             body: JSON.stringify(rpcBody)
         }),
-        fetch(`${SUPABASE_URL}/rest/v1/rpc/search_tdsynnex_products_count`, {
+        fetch(`${SUPABASE_URL}/rest/v1/rpc/search_${prefix}_products_count`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3553,7 +3595,7 @@ async function searchTDSynnexProducts(manufacturer, options = {}) {
 
     if (Array.isArray(products)) {
         return {
-            products: products.map(mapTDSynnexProduct),
+            products: products.map(p => mapTDSynnexProduct(p, dist)),
             totalCount: totalCount || 0,
             pagination: {
                 page: Math.floor(offset / limit) + 1,
@@ -3567,7 +3609,7 @@ async function searchTDSynnexProducts(manufacturer, options = {}) {
 }
 
 // Map TD Synnex product to widget's expected format (matching Ingram structure)
-function mapTDSynnexProduct(product) {
+function mapTDSynnexProduct(product, dist = 'tdsynnex') {
     // Derive SKU Type from physical dimensions
     const skuType = deriveSKUType(
         product.ship_weight,
@@ -3640,8 +3682,8 @@ function mapTDSynnexProduct(product) {
         promoExpiration: product.promo_expiration,
         etaDate: product.eta_date,
 
-        // Source marker
-        _source: 'tdsynnex',
+        // Source marker ('tdsynnex', 'sonypro' or 'sonyconsumer')
+        _source: dist,
         _rawProduct: product
     };
 }
@@ -4009,9 +4051,9 @@ async function searchManufacturers() {
     try {
         let manufacturers = [];
 
-        if (state.currentDistributor === 'tdsynnex') {
-            // TD Synnex: Use dedicated edge function
-            manufacturers = await searchTDSynnexManufacturers(searchTerm);
+        if (isTdFamily(state.currentDistributor)) {
+            // TD Synnex / Sony: that distributor's manufacturer RPC
+            manufacturers = await searchTDSynnexManufacturers(searchTerm, state.currentDistributor);
         } else {
             // Ingram: Query Supabase DB (normalized manufacturer names)
             const response = await fetch(
@@ -4097,6 +4139,8 @@ function handleLoadProducts() {
 const SKU_LOOKUP_TABLES = {
     ingram: { table: 'zoho_ingram_products', columns: ['vendor_part_number', 'ingram_part_number'] },
     tdsynnex: { table: 'zoho_tdsynnex_products', columns: ['manufacturer_part_number', 'td_synnex_sku'] },
+    sonypro: { table: 'zoho_sonypro_products', columns: ['manufacturer_part_number', 'td_synnex_sku'] },
+    sonyconsumer: { table: 'zoho_sonyconsumer_products', columns: ['manufacturer_part_number', 'td_synnex_sku'] },
     adi: { table: 'adi_products', columns: ['item', 'product_code_mpn'] },
     almo: { table: 'almo_products', columns: ['almo_sku', 'mpn'] },
     vendordirect: { table: 'vendor_direct_products', columns: ['manufacturer_part_number', 'secondary_code'] },
@@ -4111,6 +4155,8 @@ const SKU_LOOKUP_TABLES = {
 const PRICE_SHEET_DATE_COLUMNS = {
     ingram: { key: 'ingram_part_number', dates: ['updated_at'] },
     tdsynnex: { key: 'td_synnex_sku', dates: ['last_updated'] },
+    sonypro: { key: 'td_synnex_sku', dates: ['last_updated'] },
+    sonyconsumer: { key: 'td_synnex_sku', dates: ['last_updated'] },
     adi: { key: 'item', dates: ['updated_at'] },
     almo: { key: 'almo_sku', dates: ['almo_last_sync_date', 'updated_at'] },
     vendordirect: { key: 'manufacturer_part_number', dates: ['updated_at'] },
@@ -4203,7 +4249,10 @@ function mapIngramRowForUniversalSearch(row) {
 
 function mapUniversalRow(distributor, row) {
     switch (distributor) {
-        case 'tdsynnex': return mapTDSynnexProduct(row);
+        case 'tdsynnex':
+        case 'sonypro':
+        case 'sonyconsumer':
+            return mapTDSynnexProduct(row, distributor);
         case 'adi': return mapADIGlobalProduct(row);
         case 'almo': return mapAlmoProduct(row);
         case 'vendordirect': return mapVendorDirectProduct(row);
@@ -4636,15 +4685,16 @@ async function loadFilterOptions(filterType) {
     try {
         let items = [];
 
-        if (state.currentDistributor === 'tdsynnex') {
-            // TD Synnex: Use dedicated edge function
+        if (isTdFamily(state.currentDistributor)) {
+            // TD Synnex / Sony: that distributor's category RPCs
+            const tdDist = state.currentDistributor;
             let categories = [];
             if (filterType === 'category') {
-                categories = await loadTDSynnexCategories(state.manufacturer);
+                categories = await loadTDSynnexCategories(state.manufacturer, null, null, tdDist);
             } else if (filterType === 'subcategory' && state.category) {
-                categories = await loadTDSynnexCategories(state.manufacturer, state.category);
+                categories = await loadTDSynnexCategories(state.manufacturer, state.category, null, tdDist);
             } else if (filterType === 'cat3' && state.category && state.subcategory) {
-                categories = await loadTDSynnexCategories(state.manufacturer, state.category, state.subcategory);
+                categories = await loadTDSynnexCategories(state.manufacturer, state.category, state.subcategory, tdDist);
             }
             items = categories.map(c => c.name);
         } else if (state.currentDistributor === 'adi') {
@@ -4809,12 +4859,12 @@ async function onFilterChange(filterType) {
         state.filterParams.subcategory = '';
         document.getElementById('subcategorySelect').innerHTML = '<option value="">-- Any --</option>';
         document.getElementById('subCatCount').textContent = '';
-        if (state.currentDistributor === 'tdsynnex') {
+        if (isTdFamily(state.currentDistributor)) {
             document.getElementById('cat3Select').innerHTML = '<option value="">-- Any --</option>';
             document.getElementById('cat3Count').textContent = '';
         }
     } else if (filterType === 'subcategory') {
-        if (state.currentDistributor === 'tdsynnex') {
+        if (isTdFamily(state.currentDistributor)) {
             state.cat3 = '';
             document.getElementById('cat3Select').innerHTML = '<option value="">-- Any --</option>';
             document.getElementById('cat3Count').textContent = '';
@@ -4835,7 +4885,7 @@ async function onFilterChange(filterType) {
             await loadFilterOptions('skuType');
         }
     } else if (filterType === 'subcategory') {
-        if (state.currentDistributor === 'tdsynnex') {
+        if (isTdFamily(state.currentDistributor)) {
             await loadFilterOptions('cat3');
         } else if (state.currentDistributor === 'ingram') {
             // Ingram: reload media types filtered by category+subcategory
@@ -4865,8 +4915,8 @@ async function loadProducts(page = 1) {
         let products = [];
         let pagination = null;
 
-        if (state.currentDistributor === 'tdsynnex') {
-            // TD Synnex: Use dedicated edge function
+        if (isTdFamily(state.currentDistributor)) {
+            // TD Synnex / Sony: that distributor's search RPCs
             const offset = (page - 1) * PAGE_SIZE;
             const result = await searchTDSynnexProducts(state.manufacturer, {
                 search: state.skuKeyword || '',
@@ -4875,7 +4925,7 @@ async function loadProducts(page = 1) {
                 cat3: state.cat3 || '',
                 limit: PAGE_SIZE,
                 offset: offset
-            });
+            }, state.currentDistributor);
             products = result.products;
             pagination = result.pagination;
         } else if (state.currentDistributor === 'adi') {
@@ -6691,7 +6741,10 @@ async function submitQueue() {
                 // Use existing mappers to get single-mode shape
                 let mapped;
                 switch (dist) {
-                    case 'tdsynnex': mapped = mapTDSynnexProduct(raw); break;
+                    case 'tdsynnex':
+                    case 'sonypro':
+                    case 'sonyconsumer':
+                        mapped = mapTDSynnexProduct(raw, dist); break;
                     case 'adi': mapped = mapADIGlobalProduct(raw); break;
                     default: mapped = {
                         ingramPartNumber: raw.ingram_part_number || product._fileVpn || product.mpn || '',
@@ -6735,7 +6788,7 @@ async function submitQueue() {
                     qty: product.qty || 1,
                         customerDiscount: product.customerDiscount || 0,
                     ...(dist === 'ingram' && { ingramPartNumber: product._fileVpn || product.vpn || product.mpn || '' }),
-                    ...(dist === 'tdsynnex' && { tdSynnexSkuNumber: product.vpn || '', distributorPartNumber: product.vpn || '' }),
+                    ...(isTdFamily(dist) && { tdSynnexSkuNumber: product.vpn || '', distributorPartNumber: product.vpn || '' }),
                     ...(dist === 'adi' && { adiSku: product.vpn || '', distributorPartNumber: product.vpn || '' }),
                 };
             }
@@ -6774,8 +6827,10 @@ async function submitQueue() {
             productsWithMissingMfr.push(sku);
         }
 
-        // TD Synnex format
-        if (product._source === 'tdsynnex') {
+        // TD Synnex format (also Sony Pro / Sony Consumer, which are TD SYNNEX
+        // accounts: same Zoho fields, but their own Last_Sync_Source so the
+        // Client Script uses their Deluge function and vendor)
+        if (isTdFamily(product._source)) {
             return {
                 Product_Code: product.vendorPartNumber || '',
                 Product_Name: product.description || '',
@@ -6790,7 +6845,7 @@ async function submitQueue() {
                 Category_Level_3: product.cat3 || state.cat3 || '',
                 UPC: product.upcCode || '',
                 Description: product.extraDescription || '',
-                Last_Sync_Source: 'TD SYNNEX',
+                Last_Sync_Source: TD_FAMILY[product._source].syncSource,
                 UNSPSC_Commodity: product.commodityName || '',
                 Kit_or_Standalone: product.kitStandaloneFlag === 'K' ? 'Yes' : 'No',
                 Quantity: product.qty || 1,
@@ -6953,6 +7008,8 @@ const ZOHO_PRESAVE_ENABLED = false;
 const ZOHO_UPSERT_FUNCTIONS = {
     'Ingram Micro': 'createingramproduct',
     'TD SYNNEX': 'createtdsynnexproduct',
+    'TD SYNNEX (Sony Pro)': 'create_sonypro_product',
+    'TD SYNNEX (Sony Consumer)': 'create_sonyconsumer_product',
     'ADI Global': 'createadiglobalproduct',
     'Almo': 'create_almo_product',
     'Teledynamics': 'create_teledynamics_product',
@@ -7260,9 +7317,10 @@ async function showProductDetails(productIndex) {
         return;
     }
 
-    const isTDSynnex = product._source === 'tdsynnex';
+    // TD Synnex, Sony Pro and Sony Consumer share this details layout
+    const isTDSynnex = isTdFamily(product._source);
     const isADI = product._source === 'adi';
-    const distLabel = isTDSynnex ? 'TD Synnex' : isADI ? 'ADI Global' : 'Ingram';
+    const distLabel = isTDSynnex ? TD_FAMILY[product._source].label : isADI ? 'ADI Global' : 'Ingram';
     console.log(`[Details] Loading details for ${product.vendorPartNumber} (${distLabel})...`);
 
     const detailsSection = document.getElementById('productDetailsSection');
@@ -7400,15 +7458,16 @@ async function showProductDetails(productIndex) {
 
         // Fetch warehouse availability from TD SYNNEX XML API using numeric SKU (Field 5)
         if (product.tdSynnexSkuNumber) {
-            warehouseData = await fetchTDSynnexWarehouseAvailability(product.tdSynnexSkuNumber);
+            warehouseData = await fetchTDSynnexWarehouseAvailability(product.tdSynnexSkuNumber, product._source);
         }
 
         const fullProductData = { ...product, warehouseData };
 
-        // Determine authorization status from API response
+        // Determine authorization status from API response ("N/A" when the
+        // lookup failed, e.g. a Sony account before its API login is set)
         const isNotAuthorized = warehouseData.status === 'Notauthorized';
-        const authorizedText = isNotAuthorized ? 'No' : 'Yes';
-        const authorizedClass = isNotAuthorized ? 'authorized-no' : 'authorized-yes';
+        const authorizedText = warehouseData.error ? 'N/A' : isNotAuthorized ? 'No' : 'Yes';
+        const authorizedClass = warehouseData.error ? '' : isNotAuthorized ? 'authorized-no' : 'authorized-yes';
 
         // Header - Product Name (from part_description)
         document.getElementById('detailsProductName').innerHTML = `
@@ -7417,7 +7476,7 @@ async function showProductDetails(productIndex) {
 
         // Header - TD Synnex SKU (Field 5), Vendor Part (manufacturer_part_number), Manufacturer, Authorized
         document.getElementById('detailsSubtitle').innerHTML = `
-            <strong>TD Synnex SKU:</strong> ${product.tdSynnexSkuNumber || 'N/A'} |
+            <strong>${product._source === 'tdsynnex' ? 'TD Synnex' : `TD Synnex (${TD_FAMILY[product._source].label})`} SKU:</strong> ${product.tdSynnexSkuNumber || 'N/A'} |
             <strong>Vendor Part:</strong> ${product.vendorPartNumber || 'N/A'} |
             <strong>Manufacturer:</strong> ${product.vendorName || state.manufacturer} |
             <strong>Authorized:</strong> <span class="${authorizedClass}">${authorizedText}</span>
@@ -7995,8 +8054,8 @@ function resetFilters() {
     }
     if (state.currentDistributor === 'ingram') {
         loadIngramManufacturers();
-    } else if (state.currentDistributor === 'tdsynnex') {
-        loadTDSynnexManufacturers();
+    } else if (isTdFamily(state.currentDistributor)) {
+        loadTDSynnexManufacturers(state.currentDistributor);
     } else if (state.currentDistributor === 'adi') {
         loadADIManufacturers();
     }
@@ -8295,7 +8354,10 @@ function bulkUpdateLoadButtonState() {
     if (!hasInput) {
         // No file or paste — disable but no pulse (user hasn't done anything yet)
         shouldDisable = true;
-    } else if (hasFile && bulkState.detectionSucceeded && hasDistributor && bulkState.detectedDistributor !== state.currentDistributor) {
+    } else if (hasFile && bulkState.detectionSucceeded && hasDistributor && bulkState.detectedDistributor !== state.currentDistributor
+               // A TD SYNNEX quote is also right for the Sony Pro / Sony
+               // Consumer tabs (they are TD SYNNEX accounts)
+               && !(bulkState.detectedDistributor === 'tdsynnex' && isTdFamily(state.currentDistributor))) {
         // File mode: detection succeeded but user selected WRONG distributor
         shouldDisable = true;
         pulseButtons = true;
@@ -10303,6 +10365,8 @@ function bulkFetchMpnBatch(mpns) {
     const rpcMap = {
         ingram: 'bulk_mpn_lookup_ingram',
         tdsynnex: 'bulk_mpn_lookup_tdsynnex',
+        sonypro: 'bulk_mpn_lookup_sonypro',
+        sonyconsumer: 'bulk_mpn_lookup_sonyconsumer',
         adi: 'bulk_mpn_lookup_adi',
     };
     const fnName = rpcMap[state.currentDistributor];
@@ -10328,6 +10392,8 @@ function bulkMapRpcRowToProduct(row, distributor) {
                 _source: 'ingram',
             };
         case 'tdsynnex':
+        case 'sonypro':
+        case 'sonyconsumer':
             return {
                 mpn: row.manufacturer_part_number || '',
                 vpn: row.synnex_sku || row.td_synnex_sku || '',
@@ -10336,7 +10402,7 @@ function bulkMapRpcRowToProduct(row, distributor) {
                 msrp: parseFloat(row.msrp) || 0,
                 resellerPrice: parseFloat(row.contract_price) || 0,
                 category: row.category_description || '',
-                _source: 'tdsynnex',
+                _source: distributor,
             };
         case 'adi':
             return {
@@ -10961,10 +11027,12 @@ function bulkShowProductInfo(index) {
     let mapped;
     switch (state.currentDistributor) {
         case 'tdsynnex':
+        case 'sonypro':
+        case 'sonyconsumer':
             if (rawRow) {
-                mapped = mapTDSynnexProduct(rawRow);
+                mapped = mapTDSynnexProduct(rawRow, state.currentDistributor);
             } else {
-                mapped = { ...product, vendorPartNumber: product.mpn, _source: 'tdsynnex' };
+                mapped = { ...product, vendorPartNumber: product.mpn, _source: state.currentDistributor };
             }
             break;
         case 'adi':
@@ -11340,12 +11408,14 @@ function bulkToggleSection(sectionId) {
 // items go to the Product Queue with their quantities. Queue items keep their
 // own _source, so one queue can mix distributors (as Universal Search does).
 
-const ENG_QUOTE_DISTRIBUTORS = ['ingram', 'tdsynnex', 'adi', 'almo', 'teledynamics', 'vendordirect'];
+const ENG_QUOTE_DISTRIBUTORS = ['ingram', 'tdsynnex', 'sonypro', 'sonyconsumer', 'adi', 'almo', 'teledynamics', 'vendordirect'];
 
 // Columns holding the manufacturer part number in each price sheet table
 const ENG_QUOTE_MPN_COLUMNS = {
     ingram: ['vendor_part_number'],
     tdsynnex: ['manufacturer_part_number'],
+    sonypro: ['manufacturer_part_number'],
+    sonyconsumer: ['manufacturer_part_number'],
     adi: ['product_code_mpn', 'vendor_part_code'],
     almo: ['mpn', 'almo_sku'],
     teledynamics: ['mpn', 'teledynamics_pn'],

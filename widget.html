@@ -41,7 +41,8 @@
             </div>
             <div class="header-buttons">
                 <!-- Two rows, filled column by column: Universal Search / Vendor Direct,
-                     TD Synnex / ADI Global, Almo / Teledynamics, Ingram Micro -->
+                     TD Synnex / ADI Global, Sony Pro / Sony Consumer, Almo / Teledynamics,
+                     Ingram Micro -->
                 <div class="distributor-tabs">
                     <button class="tab-btn" data-distributor="universal" onclick="selectDistributor('universal')">
                         <span class="tab-icon tab-icon-wide">ALL</span>Universal Search
@@ -54,6 +55,12 @@
                     </button>
                     <button class="tab-btn" data-distributor="adi" onclick="selectDistributor('adi')">
                         <span class="tab-icon">AD</span>ADI Global
+                    </button>
+                    <button class="tab-btn" data-distributor="sonypro" onclick="selectDistributor('sonypro')">
+                        <span class="tab-icon">SP</span>Sony Pro
+                    </button>
+                    <button class="tab-btn" data-distributor="sonyconsumer" onclick="selectDistributor('sonyconsumer')">
+                        <span class="tab-icon">SC</span>Sony Consumer
                     </button>
                     <button class="tab-btn" data-distributor="almo" onclick="selectDistributor('almo')">
                         <span class="tab-icon">AL</span>Almo
@@ -250,6 +257,12 @@
                         <div class="admin-resolution-tabs" id="adminResolutionTabs">
                             <button class="mfr-admin-tab active" data-dist="tdsynnex" onclick="selectAdminResolutionTab('tdsynnex')">
                                 <span class="mfr-admin-tab-dot" style="background: #10b981;"></span>TD Synnex
+                            </button>
+                            <button class="mfr-admin-tab" data-dist="sonypro" onclick="selectAdminResolutionTab('sonypro')">
+                                <span class="mfr-admin-tab-dot" style="background: #2563eb;"></span>Sony Pro
+                            </button>
+                            <button class="mfr-admin-tab" data-dist="sonyconsumer" onclick="selectAdminResolutionTab('sonyconsumer')">
+                                <span class="mfr-admin-tab-dot" style="background: #db2777;"></span>Sony Consumer
                             </button>
                             <button class="mfr-admin-tab" data-dist="ingram" onclick="selectAdminResolutionTab('ingram')">
                                 <span class="mfr-admin-tab-dot" style="background: #0ea5e9;"></span>Ingram Micro
