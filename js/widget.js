@@ -44,6 +44,23 @@ function isTdFamily(dist) {
     return Object.prototype.hasOwnProperty.call(TD_FAMILY, dist);
 }
 
+// Distributors that are built but not switched on yet: their tabs and Name
+// Resolution tabs are hidden and Universal Search / Engineering Quotes skip
+// them. Sony Pro / Sony Consumer stay hidden until TD SYNNEX supplies their
+// SFTP and API credentials and the first imports work - then remove them here.
+const HIDDEN_DISTRIBUTORS = new Set(['sonypro', 'sonyconsumer']);
+
+function isDistributorVisible(dist) {
+    return !HIDDEN_DISTRIBUTORS.has(dist);
+}
+
+function hideUnreleasedDistributors() {
+    HIDDEN_DISTRIBUTORS.forEach(dist => {
+        document.querySelectorAll(`.tab-btn[data-distributor="${dist}"], .mfr-admin-tab[data-dist="${dist}"]`)
+            .forEach(el => { el.style.display = 'none'; });
+    });
+}
+
 // Distributor configurations
 const DISTRIBUTORS = {
     ingram: {
@@ -2374,6 +2391,7 @@ async function saveAdminResolutions() {
 // =====================================================
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Widget DOM loaded, initializing...');
+    hideUnreleasedDistributors();
     initZohoSDK();
     initLastSubmissionBanner();
     initEventListeners();
@@ -4330,7 +4348,7 @@ async function fetchUniversalDistributorRows(distributor, skuPattern) {
 async function handleUniversalSearch(skuPattern) {
     showStatus(`Searching all distributors for "${skuPattern}"...`, 'loading');
 
-    const distributors = Object.keys(SKU_LOOKUP_TABLES);
+    const distributors = Object.keys(SKU_LOOKUP_TABLES).filter(isDistributorVisible);
     const perDistributor = await Promise.all(
         distributors.map(async (dist) => {
             const rows = await fetchUniversalDistributorRows(dist, skuPattern);
@@ -11408,7 +11426,8 @@ function bulkToggleSection(sectionId) {
 // items go to the Product Queue with their quantities. Queue items keep their
 // own _source, so one queue can mix distributors (as Universal Search does).
 
-const ENG_QUOTE_DISTRIBUTORS = ['ingram', 'tdsynnex', 'sonypro', 'sonyconsumer', 'adi', 'almo', 'teledynamics', 'vendordirect'];
+const ENG_QUOTE_DISTRIBUTORS = ['ingram', 'tdsynnex', 'sonypro', 'sonyconsumer', 'adi', 'almo', 'teledynamics', 'vendordirect']
+    .filter(isDistributorVisible);
 
 // Columns holding the manufacturer part number in each price sheet table
 const ENG_QUOTE_MPN_COLUMNS = {
