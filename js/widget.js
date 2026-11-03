@@ -3727,6 +3727,9 @@ const VD_PRODUCT_NAME_SOURCE = {
     'kino flo':            { field: 'part_description' },
     'litegear':            { field: 'part_description' },
     'draper':              { field: 'part_description' },
+    // Sonance's first column is the product name ("PS-C85RT BLACK"), unique on
+    // every row; its part number is a bare 5-digit code.
+    'sonance':             { field: 'part_description' },
     'atlasied':            { field: 'part_description' },
     'listen technologies': { field: 'part_description' },
     'dbtechnologies':      { field: 'part_description', beforeDash: true }
