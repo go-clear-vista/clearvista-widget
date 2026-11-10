@@ -103,6 +103,13 @@ const DISTRIBUTORS = {
         apiPrefix: null,
         color: '#14b8a6'
     },
+    // D&H: only its Manufacturer Filters tab exists so far (brands are picked
+    // before anything is imported); the search tab comes once products load.
+    dandh: {
+        name: 'D&H',
+        apiPrefix: null,
+        color: '#b91c1c'
+    },
     universal: {
         name: 'Universal Search',
         apiPrefix: null,
@@ -198,6 +205,7 @@ const state = {
         almo: { running: false, runId: null, status: null, conclusion: null },
         vendordirect: { running: false, runId: null, status: null, conclusion: null },
         teledynamics: { running: false, runId: null, status: null, conclusion: null },
+        dandh: { running: false, runId: null, status: null, conclusion: null },
     },
     workflowPollingTimers: {},
     workflowLastRun: {},
@@ -1305,7 +1313,7 @@ async function pollWorkflowStatus(dist) {
     }
 }
 
-const DIST_LABELS = { tdsynnex: 'TD Synnex', sonypro: 'Sony Pro', sonyconsumer: 'Sony Consumer', ingram: 'Ingram Micro', adi: 'ADI Global' };
+const DIST_LABELS = { tdsynnex: 'TD Synnex', sonypro: 'Sony Pro', sonyconsumer: 'Sony Consumer', ingram: 'Ingram Micro', adi: 'ADI Global', dandh: 'D&H' };
 
 function showWorkflowToast(dist, success, message) {
     const container = document.getElementById('workflowToastContainer');

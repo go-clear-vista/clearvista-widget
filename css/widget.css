@@ -6710,6 +6710,7 @@ button.sel-btn .sel-btn-icon {
 .mfr-admin-tab.active[data-dist="vendordirect"] { border-bottom-color: #f59e0b; }
 .mfr-admin-tab.active[data-dist="almo"] { border-bottom-color: #f97316; }
 .mfr-admin-tab.active[data-dist="teledynamics"] { border-bottom-color: #14b8a6; }
+.mfr-admin-tab.active[data-dist="dandh"] { border-bottom-color: #b91c1c; }
 
 .mfr-admin-tab-dot {
     width: 8px;
