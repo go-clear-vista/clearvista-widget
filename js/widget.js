@@ -127,7 +127,7 @@ const DISTRIBUTORS = {
 // STATE MANAGEMENT
 // =====================================================
 const state = {
-    currentDistributor: 'ingram',
+    currentDistributor: 'universal',   // the widget opens on Universal Search (2026-11-10)
     // Pre-close product upsert (see preflightZohoProducts)
     submitErrors: new Map(),        // queue key -> error message from the last failed submit
     upsertedProductIds: new Map(),  // fn + payload -> {productId, manufacturerId, action}, so a retry skips items that already succeeded
@@ -2418,7 +2418,10 @@ document.addEventListener('DOMContentLoaded', function() {
     initQueueResize();
     checkProxyStatus();
     updateQueueUI();
-    loadIngramManufacturers();  // Pre-populate Ingram manufacturers on init (default distributor)
+    // Open on Universal Search (user request 2026-11-10; was Ingram Micro).
+    // selectDistributor does the full UI sync: hides the manufacturer and
+    // category filters and shows the "search every distributor" hint.
+    selectDistributor('universal');
     loadManufacturerMappings();
     initMfrMappingsResize();
     initBulkPreviewResize();
