@@ -49,9 +49,9 @@ function isTdFamily(dist) {
 // Resolution tabs are hidden and Universal Search / Engineering Quotes skip
 // them. Sony Pro / Sony Consumer stay hidden until TD SYNNEX supplies their
 // SFTP and API credentials and the first imports work - then remove them here.
-// D&H stays hidden until its Zoho pieces (create_dandh_product, the batch
-// function branch and Client Script v1.34) are in and adding to a quote works.
-const HIDDEN_DISTRIBUTORS = new Set(['sonypro', 'sonyconsumer', 'dandh']);
+// D&H was switched on 2026-11-10 once its Zoho pieces were in (migration
+// 20261110000001, create_dandh_product, batch branch, Client Script v1.34).
+const HIDDEN_DISTRIBUTORS = new Set(['sonypro', 'sonyconsumer']);
 
 function isDistributorVisible(dist) {
     return !HIDDEN_DISTRIBUTORS.has(dist);
