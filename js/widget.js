@@ -16,6 +16,7 @@ const PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/ingram
 const TDSYNNEX_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1';
 const TDSYNNEX_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/tdsynnex-proxy';
 const ADI_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/adi-proxy';
+const DANDH_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/dandh-proxy';
 const SUPABASE_URL = 'https://yasocskmsepalujntkau.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlhc29jc2ttc2VwYWx1am50a2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyMTIyNzUsImV4cCI6MjA4NDc4ODI3NX0.81g9I9iw1EbNOVCgOtNDTZtDavFMUbiprUMriSFd34c';
 const PAGE_SIZE = 50;
@@ -48,16 +49,21 @@ function isTdFamily(dist) {
 // Resolution tabs are hidden and Universal Search / Engineering Quotes skip
 // them. Sony Pro / Sony Consumer stay hidden until TD SYNNEX supplies their
 // SFTP and API credentials and the first imports work - then remove them here.
-const HIDDEN_DISTRIBUTORS = new Set(['sonypro', 'sonyconsumer']);
+// D&H stays hidden until its Zoho pieces (create_dandh_product, the batch
+// function branch and Client Script v1.34) are in and adding to a quote works.
+const HIDDEN_DISTRIBUTORS = new Set(['sonypro', 'sonyconsumer', 'dandh']);
 
 function isDistributorVisible(dist) {
     return !HIDDEN_DISTRIBUTORS.has(dist);
 }
 
+// Hides the search tab and Name Resolution tab. A hidden distributor's
+// Manufacturer Filters tab (#mfrAdminTabs) stays visible, so its brands can be
+// picked and imported before the distributor is switched on (D&H, 2026-11-10).
 function hideUnreleasedDistributors() {
     HIDDEN_DISTRIBUTORS.forEach(dist => {
         document.querySelectorAll(`.tab-btn[data-distributor="${dist}"], .mfr-admin-tab[data-dist="${dist}"]`)
-            .forEach(el => { el.style.display = 'none'; });
+            .forEach(el => { if (!el.closest('#mfrAdminTabs')) el.style.display = 'none'; });
     });
 }
 
@@ -103,8 +109,8 @@ const DISTRIBUTORS = {
         apiPrefix: null,
         color: '#14b8a6'
     },
-    // D&H: only its Manufacturer Filters tab exists so far (brands are picked
-    // before anything is imported); the search tab comes once products load.
+    // D&H: daily SFTP item file (only brands switched on in Manufacturer
+    // Filters); live price & branch stock in details via dandh-proxy.
     dandh: {
         name: 'D&H',
         apiPrefix: null,
@@ -1489,6 +1495,9 @@ async function loadAdminResolutionData(dist) {
         } else if (dist === 'teledynamics') {
             rpcName = 'get_teledynamics_manufacturers';
             fieldName = 'manufacturer';
+        } else if (dist === 'dandh') {
+            rpcName = 'get_dandh_manufacturers';
+            fieldName = 'manufacturer';
         } else {
             rpcName = 'get_adi_manufacturers';
             fieldName = 'manufacturer';
@@ -1534,6 +1543,7 @@ async function loadAdminResolutionData(dist) {
         else if (dist === 'almo') aliasField = 'almo_aliases';
         else if (dist === 'vendordirect') aliasField = 'vendor_direct_aliases';
         else if (dist === 'teledynamics') aliasField = 'teledynamics_aliases';
+        else if (dist === 'dandh') aliasField = 'dandh_aliases';
         else aliasField = 'adi_global_aliases';
 
         // Build map of distributor name (uppercase) → canonical name
@@ -3053,6 +3063,13 @@ function selectDistributor(distributor) {
         const subCatFieldTd = document.getElementById('subcategorySelect');
         if (subCatFieldTd) subCatFieldTd.closest('.filter-field').style.display = 'none';
         loadTeledynamicsManufacturers();
+    } else if (distributor === 'dandh') {
+        // D&H: Hide cat3, hide SKU type, hide subcategory (uses category_1 / category_2)
+        if (cat3Field) cat3Field.style.display = 'none';
+        if (skuTypeField) skuTypeField.style.display = 'none';
+        const subCatFieldDh = document.getElementById('subcategorySelect');
+        if (subCatFieldDh) subCatFieldDh.closest('.filter-field').style.display = 'none';
+        loadDandhManufacturers();
     } else {
         // Ingram: Hide cat3, show Media Type filter (DB-driven)
         // Restore subcategory filter (may have been hidden by ADI)
@@ -3843,6 +3860,83 @@ async function loadTeledynamicsManufacturers() {
     }
 }
 
+async function loadDandhManufacturers() {
+    const countEl = document.getElementById('mfrCount');
+    try {
+        const response = await fetch(
+            `${SUPABASE_URL}/rest/v1/rpc/get_dandh_manufacturers`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({})
+            }
+        );
+        if (!response.ok) throw new Error(`Failed: ${response.status}`);
+        const data = await response.json();
+        currentMfrList = data.map(r => r.manufacturer).filter(Boolean).sort(compareNamesCaseInsensitive);
+
+        renderMfrDropdownOptions('');
+        if (countEl) countEl.textContent = `(${currentMfrList.length})`;
+
+        const triggerText = document.getElementById('mfrDropdownText');
+        if (triggerText) {
+            triggerText.textContent = '-- Select Manufacturer --';
+            triggerText.classList.add('placeholder');
+        }
+    } catch (error) {
+        console.error('[D&H] Failed to load manufacturers:', error);
+        currentMfrList = [];
+        renderMfrDropdownOptions('');
+    }
+}
+
+// D&H item file row -> widget product. The manufacturer part number (mpn) is
+// the Vendor Part, the D&H item number is the distributor SKU (used for the
+// live price & stock lookup and as Zoho's D&H SKU).
+function mapDandhProduct(row) {
+    const num = v => (v === null || v === undefined || v === '') ? null : parseFloat(v);
+    const cost = num(row.unit_cost);
+    const msrp = num(row.unit_price);
+    const qty = row.quantity_in_stock;
+    return {
+        vendorPartNumber: row.mpn || row.dandh_item_number || '',
+        ingramPartNumber: row.mpn || row.dandh_item_number || '',
+        distributorPartNumber: row.dandh_item_number || '',
+        dandhItemNumber: row.dandh_item_number || '',
+
+        description: row.product_name || row.description || '',
+        vendorName: row.manufacturer || '',
+        category: row.category_1 || '',
+        category2: row.category_2 || '',
+
+        extraDescription: row.description || '',
+
+        retailPrice: msrp,
+        pricingData: {
+            _dbSource: true,
+            pricing: { retailPrice: msrp, customerPrice: cost },
+            availability: {
+                available: Number(qty) > 0,
+                totalAvailability: qty ?? null,
+                availabilityByWarehouse: []
+            }
+        },
+        resellerPrice: cost,
+        mapPrice: num(row.map_price),
+        rebateAmount: num(row.rebate_amount),
+        rebateEndDate: row.rebate_end_date || null,
+
+        upcCode: row.upc || '',
+
+        _source: 'dandh',
+        _rawProduct: row
+    };
+}
+
 async function loadAlmoManufacturers() {
     const countEl = document.getElementById('mfrCount');
     try {
@@ -4173,7 +4267,8 @@ const SKU_LOOKUP_TABLES = {
     adi: { table: 'adi_products', columns: ['item', 'product_code_mpn'] },
     almo: { table: 'almo_products', columns: ['almo_sku', 'mpn'] },
     vendordirect: { table: 'vendor_direct_products', columns: ['manufacturer_part_number', 'secondary_code'] },
-    teledynamics: { table: 'teledynamics_products', columns: ['teledynamics_pn'] }
+    teledynamics: { table: 'teledynamics_products', columns: ['teledynamics_pn'] },
+    dandh: { table: 'zoho_dandh_products', columns: ['dandh_item_number', 'mpn'] }
 };
 
 // =====================================================
@@ -4189,7 +4284,8 @@ const PRICE_SHEET_DATE_COLUMNS = {
     adi: { key: 'item', dates: ['updated_at'] },
     almo: { key: 'almo_sku', dates: ['almo_last_sync_date', 'updated_at'] },
     vendordirect: { key: 'manufacturer_part_number', dates: ['updated_at'] },
-    teledynamics: { key: 'teledynamics_pn', dates: ['teledynamics_last_sync_date', 'updated_at'] }
+    teledynamics: { key: 'teledynamics_pn', dates: ['teledynamics_last_sync_date', 'updated_at'] },
+    dandh: { key: 'dandh_item_number', dates: ['dandh_last_sync_date', 'updated_at'] }
 };
 
 /**
@@ -4286,6 +4382,7 @@ function mapUniversalRow(distributor, row) {
         case 'almo': return mapAlmoProduct(row);
         case 'vendordirect': return mapVendorDirectProduct(row);
         case 'teledynamics': return mapTeledynamicsProduct(row);
+        case 'dandh': return mapDandhProduct(row);
         default: return mapIngramRowForUniversalSearch(row);
     }
 }
@@ -5046,6 +5143,49 @@ async function loadProducts(page = 1) {
             const totalRecords = await countResponse.json();
 
             products = (rows || []).map(row => mapTeledynamicsProduct(row));
+
+            const totalPages = Math.ceil((totalRecords || 0) / PAGE_SIZE);
+            pagination = {
+                page: page,
+                pageSize: PAGE_SIZE,
+                totalPages: totalPages,
+                totalRecords: totalRecords || 0
+            };
+        } else if (state.currentDistributor === 'dandh') {
+            // D&H: Query Supabase DB (daily SFTP item file)
+            const offset = (page - 1) * PAGE_SIZE;
+            const rpcBody = {
+                p_manufacturer: state.manufacturer,
+                p_search: (state.skuKeyword && state.skuKeyword.length >= 2) ? state.skuKeyword : null,
+                p_category: state.category || null,
+                p_limit: PAGE_SIZE,
+                p_offset: offset
+            };
+            const rpcHeaders = {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            };
+
+            const [productsResponse, countResponse] = await Promise.all([
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_dandh_products`, {
+                    method: 'POST', headers: rpcHeaders, body: JSON.stringify(rpcBody)
+                }),
+                fetch(`${SUPABASE_URL}/rest/v1/rpc/search_dandh_products_count`, {
+                    method: 'POST', headers: rpcHeaders,
+                    body: JSON.stringify({
+                        p_manufacturer: rpcBody.p_manufacturer,
+                        p_search: rpcBody.p_search,
+                        p_category: rpcBody.p_category
+                    })
+                })
+            ]);
+            if (!productsResponse.ok) throw new Error(`D&H search failed: ${productsResponse.status}`);
+
+            const rows = await productsResponse.json();
+            const totalRecords = await countResponse.json();
+
+            products = (rows || []).map(row => mapDandhProduct(row));
 
             const totalPages = Math.ceil((totalRecords || 0) / PAGE_SIZE);
             pagination = {
@@ -6901,6 +7041,26 @@ async function submitQueue() {
             };
         }
 
+        // D&H format (Product_Code = manufacturer part #, like TD SYNNEX; the
+        // D&H item number goes to the Product's D&H SKU field)
+        if (product._source === 'dandh') {
+            return {
+                Product_Code: product.vendorPartNumber || product.dandhItemNumber || '',
+                Product_Name: product.description || '',
+                Manufacturer: normalizedMfr,
+                DandH_SKU: product.dandhItemNumber || product.distributorPartNumber || '',
+                MSRP: msrp,
+                Customer_Price: product.resellerPrice || pricingData?.pricing?.customerPrice || null,
+                DandH_Category_1: product.category || '',
+                DandH_Category_2: product.category2 || '',
+                UPC: product.upcCode || '',
+                Description: product.extraDescription || '',
+                Last_Sync_Source: 'D&H',
+                Quantity: product.qty || 1,
+                Customer_Discount: parseInt(product.customerDiscount) || 0
+            };
+        }
+
         // Teledynamics format
         if (product._source === 'teledynamics') {
             return {
@@ -7042,6 +7202,7 @@ const ZOHO_UPSERT_FUNCTIONS = {
     'ADI Global': 'createadiglobalproduct',
     'Almo': 'create_almo_product',
     'Teledynamics': 'create_teledynamics_product',
+    'D&H': 'create_dandh_product',
     'Vendor Direct': 'createvendordirectproduct'
 };
 const ZOHO_UPSERT_TIMEOUT_MS = 60000;
@@ -7080,6 +7241,9 @@ function buildUpsertPayload(p) {
         teledynamics_pn: str(p.Teledynamics_SKU),
         teledynamics_category_1: enc(p.Teledynamics_Category_1),
         teledynamics_category_2: enc(p.Teledynamics_Category_2),
+        dandh_sku: str(p.DandH_SKU),
+        dandh_category_1: enc(p.DandH_Category_1),
+        dandh_category_2: enc(p.DandH_Category_2),
         vendor_direct_category: str(p.Vendor_Direct_Category),
         unspsc_commodity: str(p.UNSPSC_Commodity),
         kit_or_standalone: str(p.Kit_or_Standalone),
@@ -7751,6 +7915,9 @@ async function showProductDetails(productIndex) {
     const PRICE_SHEET_ONLY = {
         almo: { skuLabel: 'Almo SKU', sku: product.almoSku },
         teledynamics: { skuLabel: 'Teledynamics SKU', sku: product.teledynamicsPn },
+        // D&H: shown from the daily item file first, then refreshed live
+        // (price + branch stock) by loadDandhLiveDetails below.
+        dandh: { skuLabel: 'D&H Item #', sku: product.dandhItemNumber },
         vendordirect: { skuLabel: null, sku: null }
     };
     const sheetOnly = PRICE_SHEET_ONLY[product._source];
@@ -7793,6 +7960,15 @@ async function showProductDetails(productIndex) {
             { label: 'MSRP', value: formatCurrency(product.pricingData?.pricing?.retailPrice) },
             { label: 'Customer Price', value: formatCurrency(product.pricingData?.pricing?.customerPrice) }
         ];
+        if (product._source === 'dandh') {
+            pricingFields.push({ label: 'MAP', value: product.mapPrice ? formatCurrency(product.mapPrice) : '-' });
+            pricingFields.push({
+                label: 'Rebate',
+                value: product.rebateAmount
+                    ? `${formatCurrency(product.rebateAmount)}${product.rebateEndDate ? ` (ends ${product.rebateEndDate})` : ''}`
+                    : '-'
+            });
+        }
         renderGrid('pricingGrid', pricingFields);
         setPriceSourceBadge(false);
 
@@ -7821,6 +7997,58 @@ async function showProductDetails(productIndex) {
         var _li = document.getElementById('detailsLoadingIndicator');
         if (_li) _li.style.display = 'none';
         scrollToPanel('productDetailsSection');
+
+        // D&H: refresh price, rebate and branch stock live from the D&H API
+        // (dandh-proxy). If the proxy isn't deployed or D&H doesn't answer,
+        // the item-file values above simply stay.
+        if (product._source === 'dandh' && product.dandhItemNumber) {
+            const detailsEl = document.getElementById('productDetailsSection');
+            const token = `dandh::${product.dandhItemNumber}::${Date.now()}`;
+            if (detailsEl) detailsEl.dataset.dandhLive = token;
+            (async () => {
+                try {
+                    const res = await fetch(`${DANDH_PROXY_BASE}?action=availability&itemId=${encodeURIComponent(product.dandhItemNumber)}`);
+                    const live = await res.json();
+                    if (!detailsEl || detailsEl.dataset.dandhLive !== token) return;   // another product opened
+                    if (!res.ok || live.error || live.status === 'Not found' || live.price === null || live.price === undefined) {
+                        console.warn('[D&H] Live lookup unavailable, showing item-file values:', live.error || live.status || res.status);
+                        return;
+                    }
+                    const liveFields = [
+                        { label: 'MSRP', value: formatCurrency(product.pricingData?.pricing?.retailPrice) },
+                        { label: 'Customer Price', value: formatCurrency(live.price) },
+                        { label: 'MAP', value: product.mapPrice ? formatCurrency(product.mapPrice) : '-' },
+                        { label: 'Rebate', value: live.rebate?.amount
+                            ? `${formatCurrency(live.rebate.amount)}${live.rebate.endDate ? ` (ends ${String(live.rebate.endDate).slice(0, 10)})` : ''}`
+                            : '-' }
+                    ];
+                    renderGrid('pricingGrid', liveFields);
+                    setPriceSourceBadge(true);
+                    renderGrid('availabilityGrid', [
+                        { label: 'In Stock', value: yesNo(Number(live.totalQty) > 0) },
+                        { label: 'Available Qty', value: Number(live.totalQty) || 0 }
+                    ]);
+                    const whSection = document.getElementById('warehouseSection');
+                    const whBody = document.getElementById('warehouseBody');
+                    const branches = (live.warehouses || []).filter(w => (w.qty ?? 0) > 0);
+                    if (whSection && whBody && branches.length > 0) {
+                        whSection.style.display = 'block';
+                        whBody.innerHTML = branches.map(w => `
+                            <tr>
+                                <td>${escapeHtml(w.warehouseId || '-')}</td>
+                                <td>${escapeHtml(w.city || '-')}</td>
+                                <td class="text-right">${w.qty ?? 0}</td>
+                                <td class="text-right">-</td>
+                            </tr>
+                        `).join('');
+                    }
+                    document.getElementById('rawApiResponse').textContent =
+                        JSON.stringify({ ...product, _dandhLive: live }, null, 2);
+                } catch (err) {
+                    console.warn('[D&H] Live lookup failed, showing item-file values:', err);
+                }
+            })();
+        }
         return;
     }
 
@@ -10448,6 +10676,8 @@ function bulkMapRpcRowToProduct(row, distributor) {
             return mapAlmoProduct(row);
         case 'teledynamics':
             return mapTeledynamicsProduct(row);
+        case 'dandh':
+            return mapDandhProduct(row);
         default:
             return { mpn: '', manufacturer: '', description: '', msrp: 0, resellerPrice: 0, _source: 'ingram' };
     }
@@ -11085,6 +11315,13 @@ function bulkShowProductInfo(index) {
                     ? product
                     : { ...product, vendorPartNumber: product.mpn, teledynamicsPn: product.vpn, distributorPartNumber: product.vpn, _source: 'teledynamics' };
             break;
+        case 'dandh':
+            mapped = rawRow
+                ? mapDandhProduct(rawRow)
+                : product._source === 'dandh'
+                    ? product
+                    : { ...product, vendorPartNumber: product.mpn, dandhItemNumber: product.vpn, distributorPartNumber: product.vpn, _source: 'dandh' };
+            break;
         case 'vendordirect':
             mapped = rawRow
                 ? mapVendorDirectProduct(rawRow)
@@ -11437,7 +11674,7 @@ function bulkToggleSection(sectionId) {
 // items go to the Product Queue with their quantities. Queue items keep their
 // own _source, so one queue can mix distributors (as Universal Search does).
 
-const ENG_QUOTE_DISTRIBUTORS = ['ingram', 'tdsynnex', 'sonypro', 'sonyconsumer', 'adi', 'almo', 'teledynamics', 'vendordirect']
+const ENG_QUOTE_DISTRIBUTORS = ['ingram', 'tdsynnex', 'sonypro', 'sonyconsumer', 'adi', 'almo', 'teledynamics', 'dandh', 'vendordirect']
     .filter(isDistributorVisible);
 
 // Columns holding the manufacturer part number in each price sheet table
@@ -11449,6 +11686,7 @@ const ENG_QUOTE_MPN_COLUMNS = {
     adi: ['product_code_mpn', 'vendor_part_code'],
     almo: ['mpn', 'almo_sku'],
     teledynamics: ['mpn', 'teledynamics_pn'],
+    dandh: ['mpn', 'dandh_item_number'],
     vendordirect: ['manufacturer_part_number', 'secondary_code']
 };
 
