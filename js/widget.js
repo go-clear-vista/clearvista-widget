@@ -4059,6 +4059,81 @@ function mapTeledynamicsProduct(row) {
     };
 }
 
+// =====================================================
+// TELEDYNAMICS LIVE PRICING (quotes + Bulk Mode)
+// =====================================================
+// Teledynamics' API returns live cost/MSRP for many part numbers in one call
+// (teledynamics-proxy ?action=prices, max 200). These overwrite the nightly
+// import's prices on queue items and Bulk Mode rows so quotes go to Zoho with
+// today's price. Prices the user brought in from an uploaded distributor
+// quote (_fileResellerPrice / _fileMsrp) are left alone. If the proxy or
+// Teledynamics doesn't answer, the nightly prices simply stay.
+const TELEDYNAMICS_LIVE_BATCH = 100;
+
+function teledynamicsPartNumber(p) {
+    return String(p.teledynamicsPn || (p._source === 'teledynamics' ? (p.vpn || p.distributorPartNumber) : '') || '').trim();
+}
+
+async function fetchTeledynamicsLivePrices(partNumbers) {
+    const unique = [...new Set(partNumbers.filter(Boolean))].filter(pn => !pn.includes(','));
+    const live = new Map();
+    for (let i = 0; i < unique.length; i += TELEDYNAMICS_LIVE_BATCH) {
+        const chunk = unique.slice(i, i + TELEDYNAMICS_LIVE_BATCH);
+        const res = await fetch(`${TELEDYNAMICS_PROXY_BASE}?action=prices&partNumbers=${encodeURIComponent(chunk.join(','))}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+        (data.results || []).forEach(r => {
+            if (r && r.partNumber && r.price !== null && r.price !== undefined) {
+                live.set(String(r.partNumber).toUpperCase(), r);
+            }
+        });
+    }
+    return live;
+}
+
+// Updates the Teledynamics products in the list in place. Skips ones priced
+// live within maxAgeMs. Returns { updated, missing, failed }.
+async function applyTeledynamicsLivePrices(products, maxAgeMs = 0) {
+    const now = Date.now();
+    const todo = (products || []).filter(p => p && p._source === 'teledynamics' && teledynamicsPartNumber(p)
+        && !(p._tdLiveAt && now - p._tdLiveAt < maxAgeMs));
+    if (todo.length === 0) return { updated: 0, missing: 0, failed: false };
+
+    let live;
+    try {
+        live = await fetchTeledynamicsLivePrices(todo.map(teledynamicsPartNumber));
+    } catch (err) {
+        console.warn('[Teledynamics] Live prices unavailable, keeping nightly prices:', err);
+        return { updated: 0, missing: 0, failed: true };
+    }
+
+    let updated = 0, missing = 0;
+    todo.forEach(p => {
+        const l = live.get(teledynamicsPartNumber(p).toUpperCase());
+        if (!l) { missing++; return; }
+        const pricing = { ...(p.pricingData?.pricing || {}) };
+        if (!p._fileResellerPrice) {
+            p.resellerPrice = l.price;
+            pricing.customerPrice = l.price;
+        }
+        if (l.msrp !== null && l.msrp !== undefined && l.msrp > 0) {
+            if (p._fileMsrp === null || p._fileMsrp === undefined) {
+                pricing.retailPrice = l.msrp;
+                p.retailPrice = l.msrp;
+                if ('msrp' in p) p.msrp = l.msrp;
+            } else {
+                p._dbMsrp = l.msrp;   // Bulk Mode MSRP comparison: "current" = live
+            }
+        }
+        p.pricingData = { ...(p.pricingData || {}), pricing };
+        p._tdLive = l;
+        p._tdLiveAt = now;
+        updated++;
+    });
+    if (missing) console.warn(`[Teledynamics] ${missing} part number(s) not returned live, keeping nightly prices`);
+    return { updated, missing, failed: false };
+}
+
 function mapAlmoProduct(row) {
     return {
         vendorPartNumber: row.almo_sku || '',
@@ -5635,6 +5710,7 @@ function addSelectedToQueue() {
     }
 
     let addedCount = 0;
+    const addedProducts = [];
     selectedArray.forEach(product => {
         const partNumber = getProductKey(product);
         const alreadyQueued = state.queuedProducts.some(p => getProductKey(p) === partNumber);
@@ -5644,9 +5720,16 @@ function addSelectedToQueue() {
             const pricingData = product.pricingData || state.pricingData?.[product.ingramPartNumber];
             const enrichedProduct = { ...product, pricingData, customerDiscount: 0 };
             state.queuedProducts.push(enrichedProduct);
+            addedProducts.push(enrichedProduct);
             addedCount++;
         }
     });
+
+    // Teledynamics: swap in today's live prices (in the background; the
+    // quote save re-checks anything this misses)
+    if (addedProducts.some(p => p._source === 'teledynamics')) {
+        applyTeledynamicsLivePrices(addedProducts).then(r => { if (r.updated) updateQueueUI(); });
+    }
 
     // Clear current selection
     state.selectedProducts.clear();
@@ -6896,6 +6979,15 @@ async function submitQueue() {
     }
 
     // Step 5: Format products with normalized manufacturers
+    // Teledynamics: quote with today's live price (cost + MSRP), not the
+    // nightly import's. Anything priced live in the last 10 minutes is kept.
+    if (getActiveQueue().some(p => p._source === 'teledynamics')) {
+        showStatus('Getting live Teledynamics prices...', 'loading');
+        const tdLive = await applyTeledynamicsLivePrices(getActiveQueue(), 10 * 60 * 1000);
+        if (tdLive.updated) updateQueueUI();
+        if (tdLive.failed) console.warn('[SubmitQueue] Teledynamics live prices unavailable - quoting nightly prices');
+    }
+
     showStatus('Preparing products for submission...', 'loading');
 
     // Normalize bulk products to single-mode shape for formatting
@@ -6919,6 +7011,7 @@ async function submitQueue() {
                     case 'sonyconsumer':
                         mapped = mapTDSynnexProduct(raw, dist); break;
                     case 'adi': mapped = mapADIGlobalProduct(raw); break;
+                    case 'teledynamics': mapped = mapTeledynamicsProduct(raw); break;
                     default: mapped = {
                         ingramPartNumber: raw.ingram_part_number || product._fileVpn || product.mpn || '',
                         vendorPartNumber: raw.vendor_part_number || raw.manufacturer_part_number || '',
@@ -6963,6 +7056,7 @@ async function submitQueue() {
                     ...(dist === 'ingram' && { ingramPartNumber: product._fileVpn || product.vpn || product.mpn || '' }),
                     ...(isTdFamily(dist) && { tdSynnexSkuNumber: product.vpn || '', distributorPartNumber: product.vpn || '' }),
                     ...(dist === 'adi' && { adiSku: product.vpn || '', distributorPartNumber: product.vpn || '' }),
+                    ...(dist === 'teledynamics' && { teledynamicsPn: product.vpn || '', distributorPartNumber: product.vpn || '' }),
                 };
             }
         });
@@ -10674,9 +10768,29 @@ function bulkFetchMpnBatch(mpns) {
         sonyconsumer: 'bulk_mpn_lookup_sonyconsumer',
         adi: 'bulk_mpn_lookup_adi',
     };
+    // Teledynamics has no manufacturer part number column: its SKUs are the
+    // model number with a brand prefix (YEA-BT50 = Yealink BT50, MAXX- =
+    // MAXHUB). So look up each term as typed and with each prefix, through
+    // the punctuation-insensitive part_lookup_exact RPC (also used by
+    // Engineering Quotes). A new brand prefix only needs adding here.
+    if (state.currentDistributor === 'teledynamics') {
+        const terms = [];
+        mpns.forEach(m => TELEDYNAMICS_SKU_PREFIXES.forEach(prefix => terms.push(prefix + m)));
+        return bulkFetchRpcBatch('part_lookup_exact', { p_distributor: 'teledynamics', p_terms: terms, p_limit: 5000 });
+    }
     const fnName = rpcMap[state.currentDistributor];
     if (!fnName) throw new Error(`Unknown distributor: ${state.currentDistributor}`);
     return bulkFetchRpcBatch(fnName, { mpns });
+}
+
+// '' = the term as typed (a full Teledynamics SKU like YEA-BT50)
+const TELEDYNAMICS_SKU_PREFIXES = ['', 'YEA-', 'MAXX-'];
+
+// Model number from a Teledynamics SKU: YEA-BT50 -> BT50
+function teledynamicsModelFromSku(sku) {
+    const s = String(sku || '');
+    const prefix = TELEDYNAMICS_SKU_PREFIXES.find(pre => pre && s.toUpperCase().startsWith(pre));
+    return prefix ? s.slice(prefix.length) : s;
 }
 
 function bulkFetchVpnBatch(vpns) {
@@ -10723,7 +10837,17 @@ function bulkMapRpcRowToProduct(row, distributor) {
         case 'almo':
             return mapAlmoProduct(row);
         case 'teledynamics':
-            return mapTeledynamicsProduct(row);
+            return {
+                mpn: teledynamicsModelFromSku(row.teledynamics_pn),
+                vpn: row.teledynamics_pn || '',
+                teledynamicsPn: row.teledynamics_pn || '',
+                manufacturer: row.manufacturer || '',
+                description: row.product_name || row.description || '',
+                msrp: parseFloat(row.unit_price) || 0,
+                resellerPrice: parseFloat(row.unit_cost) || 0,
+                category: row.category_1 || '',
+                _source: 'teledynamics',
+            };
         case 'dandh':
             return mapDandhProduct(row);
         default:
@@ -10840,6 +10964,12 @@ async function bulkLoadProducts() {
                 let mpnKey = '';
                 if (state.currentDistributor === 'ingram') {
                     mpnKey = (row.vendor_part_number || '').toUpperCase();
+                } else if (state.currentDistributor === 'teledynamics') {
+                    // Keyed by both the SKU and its model number, since
+                    // either may end up as the row's MPN (see below)
+                    const sku = (row.teledynamics_pn || '').toUpperCase();
+                    if (sku) bulkState.rawRpcRows.set(teledynamicsModelFromSku(sku), row);
+                    mpnKey = sku;
                 } else if (state.currentDistributor === 'adi') {
                     mpnKey = (row.product_code_mpn || '').toUpperCase();
                 } else {
@@ -10850,7 +10980,32 @@ async function bulkLoadProducts() {
         }
 
         // Map RPC rows to product format
+        if (state.currentDistributor === 'teledynamics') {
+            // A SKU can come back for more than one uploaded spelling
+            // ("BT50" and "YEA-BT50"): keep one row per SKU
+            const seenSku = new Set();
+            const deduped = allRows.filter(r => {
+                const k = String(r.teledynamics_pn || '').toUpperCase();
+                if (!k || seenSku.has(k)) return false;
+                seenSku.add(k);
+                return true;
+            });
+            allRows.length = 0;
+            allRows.push(...deduped);
+        }
         bulkState.products = allRows.map(row => bulkMapRpcRowToProduct(row, state.currentDistributor));
+
+        // Teledynamics: the MPN shown is the model number (BT50), unless the
+        // list had the full SKU (YEA-BT50) - then use that, so the row lines
+        // up with the uploaded list (ordering, unmatched list, file prices).
+        if (state.currentDistributor === 'teledynamics') {
+            const uploadedKeys = new Set(uniqueMpns.map(bulkMatchKey));
+            bulkState.products.forEach(p => {
+                if (!uploadedKeys.has(bulkMatchKey(p.mpn)) && uploadedKeys.has(bulkMatchKey(p.vpn))) {
+                    p.mpn = p.vpn;
+                }
+            });
+        }
 
         // Lazy verification — fire-and-forget, non-blocking
         if (state.currentDistributor === 'ingram') {
@@ -10864,7 +11019,10 @@ async function bulkLoadProducts() {
                 const fd = fileDataMap.get(bulkMatchKey(p.mpn));
                 if (fd) {
                     if (fd.qty) p.qty = fd.qty;
-                    if (fd.resellerPrice) p.resellerPrice = fd.resellerPrice;
+                    if (fd.resellerPrice) {
+                        p.resellerPrice = fd.resellerPrice;
+                        p._fileResellerPrice = true;   // live Teledynamics prices leave it alone
+                    }
                     if (fd.msrp !== null && fd.msrp !== undefined) {
                         p._dbMsrp = p.msrp;      // Save database MSRP
                         p._fileMsrp = fd.msrp;    // Save spreadsheet MSRP
@@ -10873,6 +11031,14 @@ async function bulkLoadProducts() {
                     if (fd.vpn) p._fileVpn = fd.vpn;
                 }
             });
+        }
+
+        // Teledynamics: replace the nightly prices with today's live ones
+        // (before the MSRP comparison, so "current" means live)
+        if (state.currentDistributor === 'teledynamics' && bulkState.products.length > 0) {
+            if (progressText) progressText.textContent = 'Getting live Teledynamics prices...';
+            const tdLive = await applyTeledynamicsLivePrices(bulkState.products);
+            console.log(`[BulkSearch] Teledynamics live prices: ${tdLive.updated} updated, ${tdLive.missing} not returned${tdLive.failed ? ' (proxy unavailable - nightly prices kept)' : ''}`);
         }
 
         // Phase 7b: Detect MSRP mismatches
@@ -12405,6 +12571,8 @@ function bulkDetectDistributor() {
             detected = 'ingram';
         } else if (/adiglobal\.com/.test(rowText) || /\badi\s*global\b/.test(rowText) || /\badi\b/.test(rowText)) {
             detected = 'adi';
+        } else if (/teledynamics\.com/.test(rowText) || /\btele\s*dynamics\b/.test(rowText)) {
+            detected = 'teledynamics';
         }
 
         if (detected) {
