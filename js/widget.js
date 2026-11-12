@@ -17,6 +17,7 @@ const TDSYNNEX_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1';
 const TDSYNNEX_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/tdsynnex-proxy';
 const ADI_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/adi-proxy';
 const DANDH_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/dandh-proxy';
+const TELEDYNAMICS_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/teledynamics-proxy';
 const SUPABASE_URL = 'https://yasocskmsepalujntkau.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlhc29jc2ttc2VwYWx1am50a2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyMTIyNzUsImV4cCI6MjA4NDc4ODI3NX0.81g9I9iw1EbNOVCgOtNDTZtDavFMUbiprUMriSFd34c';
 const PAGE_SIZE = 50;
@@ -7917,6 +7918,8 @@ async function showProductDetails(productIndex) {
     // query Ingram's API with a non-Ingram part number.
     const PRICE_SHEET_ONLY = {
         almo: { skuLabel: 'Almo SKU', sku: product.almoSku },
+        // Teledynamics: shown from the nightly import first, then refreshed
+        // live (price, MAP, stock, status) by the teledynamics-proxy block below.
         teledynamics: { skuLabel: 'Teledynamics SKU', sku: product.teledynamicsPn },
         // D&H: shown from the daily item file first, then refreshed live
         // (price + branch stock) by loadDandhLiveDetails below.
@@ -7971,6 +7974,10 @@ async function showProductDetails(productIndex) {
                     ? `${formatCurrency(product.rebateAmount)}${product.rebateEndDate ? ` (ends ${product.rebateEndDate})` : ''}`
                     : '-'
             });
+        }
+        if (product._source === 'teledynamics') {
+            const sheetMap = parseFloat(raw.map_price);
+            pricingFields.push({ label: 'MAP', value: Number.isFinite(sheetMap) && sheetMap > 0 ? formatCurrency(sheetMap) : '-' });
         }
         renderGrid('pricingGrid', pricingFields);
         setPriceSourceBadge(false);
@@ -8049,6 +8056,44 @@ async function showProductDetails(productIndex) {
                         JSON.stringify({ ...product, _dandhLive: live }, null, 2);
                 } catch (err) {
                     console.warn('[D&H] Live lookup failed, showing item-file values:', err);
+                }
+            })();
+        }
+
+        // Teledynamics: refresh price, MAP, stock and status live from the
+        // Teledynamics API (teledynamics-proxy). If the proxy isn't deployed or
+        // Teledynamics doesn't answer, the nightly-import values above stay.
+        if (product._source === 'teledynamics' && product.teledynamicsPn) {
+            const detailsEl = document.getElementById('productDetailsSection');
+            const token = `teledynamics::${product.teledynamicsPn}::${Date.now()}`;
+            if (detailsEl) detailsEl.dataset.teledynamicsLive = token;
+            (async () => {
+                try {
+                    const res = await fetch(`${TELEDYNAMICS_PROXY_BASE}?action=availability&partNumber=${encodeURIComponent(product.teledynamicsPn)}`);
+                    const live = await res.json();
+                    if (!detailsEl || detailsEl.dataset.teledynamicsLive !== token) return;   // another product opened
+                    if (!res.ok || live.error || live.status === 'Not found' || live.price === null || live.price === undefined) {
+                        console.warn('[Teledynamics] Live lookup unavailable, showing nightly-import values:', live.error || live.status || res.status);
+                        return;
+                    }
+                    const sheetMsrp = product.pricingData?.pricing?.retailPrice;
+                    renderGrid('pricingGrid', [
+                        { label: 'MSRP', value: formatCurrency(live.msrp ?? sheetMsrp) },
+                        { label: 'Customer Price', value: formatCurrency(live.price) },
+                        { label: 'MAP', value: live.map ? formatCurrency(live.map) : '-' }
+                    ]);
+                    setPriceSourceBadge(true);
+                    const availFields = [
+                        { label: 'In Stock', value: yesNo(Number(live.totalQty) > 0) },
+                        { label: 'Available Qty', value: Number(live.totalQty) || 0 },
+                        { label: 'Status', value: escapeHtml(live.status || '-') }
+                    ];
+                    if (live.specialOrder) availFields.push({ label: 'Special Order', value: 'Yes' });
+                    renderGrid('availabilityGrid', availFields);
+                    document.getElementById('rawApiResponse').textContent =
+                        JSON.stringify({ ...product, _teledynamicsLive: live }, null, 2);
+                } catch (err) {
+                    console.warn('[Teledynamics] Live lookup failed, showing nightly-import values:', err);
                 }
             })();
         }
