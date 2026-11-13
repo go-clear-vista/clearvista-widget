@@ -3679,8 +3679,9 @@ function mapTDSynnexProduct(product, dist = 'tdsynnex') {
         subCategory: product.cat_description_2,
         cat3: product.cat_description_3,
 
-        // Extended description
-        extraDescription: product.long_description || product.long_description_1 || '',
+        // Description sent to Zoho. TD Synnex's feed leaves its long-description
+        // fields (50-52) blank on every row, so part_description is the only text.
+        extraDescription: product.part_description || product.long_description || product.long_description_1 || '',
 
         // Pricing (TD Synnex has msrp directly)
         retailPrice: product.msrp,
