@@ -8066,7 +8066,7 @@ async function showProductDetails(productIndex) {
         if (product._source === 'dandh') {
             pricingFields.push({ label: 'MAP', value: product.mapPrice ? formatCurrency(product.mapPrice) : '-' });
             pricingFields.push({
-                label: 'Rebate',
+                label: 'Rebate (included in price)',
                 value: product.rebateAmount
                     ? `${formatCurrency(product.rebateAmount)}${product.rebateEndDate ? ` (ends ${product.rebateEndDate})` : ''}`
                     : '-'
@@ -8125,7 +8125,7 @@ async function showProductDetails(productIndex) {
                         { label: 'MSRP', value: formatCurrency(product.pricingData?.pricing?.retailPrice) },
                         { label: 'Customer Price', value: formatCurrency(live.price) },
                         { label: 'MAP', value: product.mapPrice ? formatCurrency(product.mapPrice) : '-' },
-                        { label: 'Rebate', value: live.rebate?.amount
+                        { label: 'Rebate (included in price)', value: live.rebate?.amount
                             ? `${formatCurrency(live.rebate.amount)}${live.rebate.endDate ? ` (ends ${String(live.rebate.endDate).slice(0, 10)})` : ''}`
                             : '-' }
                     ];
