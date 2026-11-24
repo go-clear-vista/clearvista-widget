@@ -17,6 +17,8 @@ const TDSYNNEX_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1';
 const TDSYNNEX_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/tdsynnex-proxy';
 const ADI_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/adi-proxy';
 const DANDH_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/dandh-proxy';
+// D&H branch codes -> city (from D&H, 2026-11-24)
+const DANDH_BRANCH_CITIES = { BR01: 'Harrisburg', BR04: 'Fresno', BR05: 'Indianapolis', BR06: 'Atlanta' };
 const TELEDYNAMICS_PROXY_BASE = 'https://yasocskmsepalujntkau.supabase.co/functions/v1/teledynamics-proxy';
 const SUPABASE_URL = 'https://yasocskmsepalujntkau.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlhc29jc2ttc2VwYWx1am50a2F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyMTIyNzUsImV4cCI6MjA4NDc4ODI3NX0.81g9I9iw1EbNOVCgOtNDTZtDavFMUbiprUMriSFd34c';
@@ -8141,7 +8143,7 @@ async function showProductDetails(productIndex) {
                         whBody.innerHTML = branches.map(w => `
                             <tr>
                                 <td>${escapeHtml(w.warehouseId || '-')}</td>
-                                <td>${escapeHtml(w.city || '-')}</td>
+                                <td>${escapeHtml(DANDH_BRANCH_CITIES[w.warehouseId] || w.city || '-')}</td>
                                 <td class="text-right">${w.qty ?? 0}</td>
                                 <td class="text-right">-</td>
                             </tr>
